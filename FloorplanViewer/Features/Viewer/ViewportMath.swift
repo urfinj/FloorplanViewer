@@ -28,6 +28,20 @@ nonisolated enum ViewportMath {
         point.x >= 0 && point.x <= imageSize.width && point.y >= 0 && point.y <= imageSize.height
     }
 
+    /// Screen point → normalized `0…1` floorplan coordinates, or `nil` when the point falls
+    /// outside the image (letterboxed margins around a fitted plan).
+    static func normalizedPoint(
+        screenPoint: CGPoint,
+        zoomScale: CGFloat,
+        contentOffset: CGPoint,
+        imageSize: CGSize
+    ) -> (x: Double, y: Double)? {
+        guard imageSize.width > 0, imageSize.height > 0, zoomScale > 0 else { return nil }
+        let image = toImage(screenPoint: screenPoint, zoomScale: zoomScale, contentOffset: contentOffset)
+        guard isWithinImage(image, imageSize: imageSize) else { return nil }
+        return (Double(image.x / imageSize.width), Double(image.y / imageSize.height))
+    }
+
     /// Aspect-fit zoom for the whole plan.
     static func fitScale(imageSize: CGSize, boundsSize: CGSize) -> CGFloat {
         guard imageSize.width > 0, imageSize.height > 0 else { return 1 }

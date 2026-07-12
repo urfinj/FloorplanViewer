@@ -30,6 +30,8 @@ final class ViewerViewModel {
     private(set) var markers: [Marker] = []
     private(set) var selectedMarkerID: String?
     let viewport = ViewportState()
+    /// Command bridge for the discrete zoom buttons; installed by the scroll-view representable.
+    let viewportController = ViewportController()
     /// Keeps verify-or-repair retries independent from the package observation stream. The
     /// pipeline can demote a broken `ready` row while the handshake is suspended; observation
     /// must remain free to consume that state change and replace the spinner with the real state.
@@ -181,15 +183,7 @@ final class ViewerViewModel {
         )
         switch action {
         case let .place(normalizedX, normalizedY):
-            Task { [markerRepository, projectID] in
-                do {
-                    try await markerRepository.insert(
-                        projectID: projectID, normalizedX: normalizedX, normalizedY: normalizedY
-                    )
-                } catch {
-                    Log.viewer.error("Placing marker failed: \(String(describing: error), privacy: .public)")
-                }
-            }
+            placeMarker(normalizedX: normalizedX, normalizedY: normalizedY)
         case let .select(id):
             selectedMarkerID = id
         case .deselect:
@@ -202,6 +196,58 @@ final class ViewerViewModel {
     /// VoiceOver activation path (the overlay's pins are not touch-hittable by design).
     func toggleSelection(of markerID: String) {
         selectedMarkerID = selectedMarkerID == markerID ? nil : markerID
+    }
+
+    /// The selected marker's live row, feeding the inspector sheet via `sheet(item:)`. Turns nil
+    /// the moment the marker is deleted or deselected, which dismisses the sheet.
+    var selectedMarker: Marker? {
+        guard let selectedMarkerID else { return nil }
+        return markers.first { $0.id == selectedMarkerID }
+    }
+
+    /// 1-based position in creation order — the number VoiceOver announces and the sheet titles.
+    func markerNumber(for marker: Marker) -> Int {
+        (markers.firstIndex(of: marker) ?? 0) + 1
+    }
+
+    func deselectMarker() {
+        selectedMarkerID = nil
+    }
+
+    /// Drops a pin at whatever plan point currently sits under the viewport center — the
+    /// no-aiming complement to tap-to-drop (and the VoiceOver-friendly placement path).
+    func placeMarkerAtViewportCenter() {
+        guard let content else { return }
+        let center = CGPoint(x: viewport.boundsSize.width / 2, y: viewport.boundsSize.height / 2)
+        guard let normalized = ViewportMath.normalizedPoint(
+            screenPoint: center,
+            zoomScale: viewport.zoomScale,
+            contentOffset: viewport.contentOffset,
+            imageSize: content.imageSize
+        ) else { return }
+        placeMarker(normalizedX: normalized.x, normalizedY: normalized.y)
+    }
+
+    private func placeMarker(normalizedX: Double, normalizedY: Double) {
+        Task { [markerRepository, projectID] in
+            do {
+                try await markerRepository.insert(
+                    projectID: projectID, normalizedX: normalizedX, normalizedY: normalizedY
+                )
+            } catch {
+                Log.viewer.error("Placing marker failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    // MARK: - Zoom
+
+    func zoomIn() {
+        viewportController.zoomIn()
+    }
+
+    func zoomOut() {
+        viewportController.zoomOut()
     }
 
     func deleteSelectedMarker() {

@@ -9,6 +9,7 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
     let pyramid: TilePyramid
     let provider: TileProvider
     let viewport: ViewportState
+    let controller: ViewportController
     let onTap: (CGPoint) -> Void
     @Environment(\.displayScale) private var displayScale
 
@@ -39,6 +40,15 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
         scroll.onLayout = { [weak scroll, weak coordinator = context.coordinator] in
             guard let scroll, let coordinator else { return }
             coordinator.updateZoomLimits(scroll)
+        }
+        // Imperative command path for the SwiftUI zoom buttons.
+        controller.zoomBy = { [weak scroll, weak coordinator = context.coordinator] factor in
+            guard let scroll, let coordinator else { return }
+            coordinator.zoom(by: factor, on: scroll)
+        }
+        controller.zoomToFit = { [weak scroll] in
+            guard let scroll else { return }
+            scroll.setZoomScale(scroll.minimumZoomScale, animated: true)
         }
         return scroll
     }
@@ -88,6 +98,7 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             let wasAtFit = lastFitScale.map { abs(scrollView.zoomScale - $0) < 0.001 } ?? true
             scrollView.minimumZoomScale = fit
             scrollView.maximumZoomScale = ViewportMath.maxScale(fit: fit)
+            viewport.updateLimits(minimum: fit, maximum: ViewportMath.maxScale(fit: fit))
             // Only re-fit when the user was already fitted (first layout, rotation at fit).
             // Never clamp `zoomScale < fit` here: layout runs during pinch, and the bounce
             // below minimum is UIScrollView's own gesture behavior — stomping it fights the pinch.
@@ -124,6 +135,47 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             guard let content else { return }
             // The content view's coordinate space IS image space (1 pt ≡ 1 px).
             onTap(recognizer.location(in: content))
+        }
+
+        /// Discrete zoom that keeps the image point under the viewport center pinned, animated as
+        /// one ease-in-out. The screen-space center is `width / 2` — NOT `bounds.midX`, because a
+        /// scroll view's `bounds.origin` IS `contentOffset`, and `toImage` adds the offset itself
+        /// (using `midX` double-counts it and drifts the view sideways on every press).
+        func zoom(by factor: CGFloat, on scrollView: UIScrollView) {
+            let current = scrollView.zoomScale
+            guard current > 0 else { return }
+            let target = min(max(current * factor, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
+            guard abs(target - current) > 0.0001 else { return }
+            let viewportCenter = CGPoint(x: scrollView.bounds.width / 2, y: scrollView.bounds.height / 2)
+            let anchor = ViewportMath.toImage(
+                screenPoint: viewportCenter, zoomScale: current, contentOffset: scrollView.contentOffset
+            )
+            UIView.animate(
+                withDuration: 0.28,
+                delay: 0,
+                options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+            ) {
+                scrollView.zoomScale = target // fires scrollViewDidZoom → recenter() refreshes insets
+                let desired = CGPoint(
+                    x: anchor.x * target - viewportCenter.x,
+                    y: anchor.y * target - viewportCenter.y
+                )
+                scrollView.contentOffset = Self.clampedOffset(desired, in: scrollView)
+            }
+        }
+
+        /// Legal offset range under the centering insets: small content pins to its centered
+        /// offset (min == max == −inset); large content clamps to its edges.
+        private static func clampedOffset(_ proposed: CGPoint, in scrollView: UIScrollView) -> CGPoint {
+            let inset = scrollView.contentInset
+            let minX = -inset.left
+            let minY = -inset.top
+            let maxX = max(minX, scrollView.contentSize.width - scrollView.bounds.width + inset.right)
+            let maxY = max(minY, scrollView.contentSize.height - scrollView.bounds.height + inset.bottom)
+            return CGPoint(
+                x: min(max(proposed.x, minX), maxX),
+                y: min(max(proposed.y, minY), maxY)
+            )
         }
 
         @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {

@@ -12,6 +12,9 @@ nonisolated struct ProjectListRow: Decodable, FetchableRecord, Sendable, Identif
     var downloadProgress: Double?
     var retryCount: Int
     var nextRetryAt: Double?
+    var markerCount: Int
+    var extractedRelDir: String?
+    var lastSuccessAt: Double?
 
     var state: PackageState {
         PackageState(rawValue: stateRaw) ?? .notPrepared
@@ -19,6 +22,13 @@ nonisolated struct ProjectListRow: Decodable, FetchableRecord, Sendable, Identif
 
     var failureReason: PackageFailureReason? {
         failureReasonRaw.flatMap(PackageFailureReason.init(rawValue:))
+    }
+
+    /// Convention path to the package preview image once the package has been extracted. Optional
+    /// by design: a package without a `preview.jpg` still lists and opens — the row thumbnail just
+    /// falls back to a state glyph. Never load-bearing for rendering.
+    var previewRelPath: String? {
+        extractedRelDir.map { "\($0)/preview.jpg" }
     }
 
     enum CodingKeys: String, CodingKey {
@@ -30,5 +40,8 @@ nonisolated struct ProjectListRow: Decodable, FetchableRecord, Sendable, Identif
         case downloadProgress = "download_progress"
         case retryCount = "retry_count"
         case nextRetryAt = "next_retry_at"
+        case markerCount = "marker_count"
+        case extractedRelDir = "extracted_rel_dir"
+        case lastSuccessAt = "last_success_at"
     }
 }

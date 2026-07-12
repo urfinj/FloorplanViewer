@@ -7,6 +7,7 @@ struct StatusBadge: View {
     var body: some View {
         Label(title, systemImage: symbol)
             .font(.caption.weight(.medium))
+            .lineLimit(1)
             .foregroundStyle(tint)
             .padding(.horizontal, 8)
             .padding(.vertical, 3)

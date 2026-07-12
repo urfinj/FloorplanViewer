@@ -7,6 +7,10 @@ struct RootView: View {
     let environment: AppEnvironment
 
     @State private var model: ProjectListModel
+    /// The selected viewer session belongs to the always-mounted navigation root, not to the
+    /// transient compact detail. iOS 26/27 can keep/reuse a collapsed `NavigationSplitView`
+    /// detail after Back without reliably restarting detail-scoped `.task` modifiers.
+    @State private var viewerModel: ViewerViewModel?
     @Environment(\.scenePhase) private var scenePhase
 
     init(environment: AppEnvironment) {
@@ -16,6 +20,7 @@ struct RootView: View {
             appState: environment.appStateRepository,
             preparation: environment.coordinator
         ))
+        _viewerModel = State(initialValue: nil)
     }
 
     var body: some View {
@@ -30,6 +35,9 @@ struct RootView: View {
         .task {
             await model.start()
         }
+        .task(id: model.selectedProjectID) {
+            await observeSelectedViewer()
+        }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }
             Task { await environment.coordinator.prepareAll() }
@@ -38,10 +46,15 @@ struct RootView: View {
 
     private var sidebar: some View {
         List(model.rows, selection: $model.selectedProjectID) { row in
-            ProjectRowView(row: row, isOffline: environment.connectivity.isOffline) {
+            ProjectRowView(
+                row: row,
+                previewURL: previewURL(for: row),
+                isOffline: environment.connectivity.isOffline
+            ) {
                 model.retryNow(projectID: row.id)
             }
             .tag(row.id)
+            .listRowSeparator(.hidden)
         }
         .navigationTitle("Floorplans")
         .overlay {
@@ -58,16 +71,42 @@ struct RootView: View {
         }
     }
 
+    /// Container-relative → absolute resolution happens here so the row stays storage-agnostic.
+    private func previewURL(for row: ProjectListRow) -> URL? {
+        row.previewRelPath.flatMap { environment.storage.absoluteURL(for: $0) }
+    }
+
     @ViewBuilder
     private var detail: some View {
-        if let selectedID = model.selectedProjectID {
+        if let selectedID = model.selectedProjectID,
+           let viewerModel,
+           viewerModel.projectID == selectedID
+        {
             FloorplanViewerScreen(
                 title: model.rows.first(where: { $0.id == selectedID })?.name ?? "Floorplan",
-                model: environment.makeViewerModel(projectID: selectedID)
+                model: viewerModel
             )
             .id(selectedID) // fresh model + viewer per project; no cross-project bleed
+        } else if model.selectedProjectID != nil {
+            ProgressView()
+                .controlSize(.large)
         } else {
             ContentUnavailableView("Select a Project", systemImage: "square.stack.3d.up")
         }
+    }
+
+    /// Runs above the compact detail lifecycle. Structured child observations are cancelled when
+    /// selection genuinely changes, but navigating Back while selection is retained leaves the
+    /// ready viewer session intact.
+    private func observeSelectedViewer() async {
+        guard let selectedID = model.selectedProjectID else {
+            viewerModel = nil
+            return
+        }
+        let viewer = environment.makeViewerModel(projectID: selectedID)
+        viewerModel = viewer
+        async let packageObservation: Void = viewer.observePackage()
+        async let markerObservation: Void = viewer.observeMarkers()
+        _ = await (packageObservation, markerObservation)
     }
 }

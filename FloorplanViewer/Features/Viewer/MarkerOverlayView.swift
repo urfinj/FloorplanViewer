@@ -3,8 +3,8 @@ import SwiftUI
 /// Renders marker pins above the scroll view at constant screen size, positions derived from
 /// `ViewportState`. Hit-testing is off — touch interaction flows through the UIKit tap
 /// recognizer and the pure resolver — but each pin remains a VoiceOver element whose activate
-/// action toggles selection (deletion then lives in the toolbar), so assistive-tech users are
-/// not locked out of an interaction they cannot aim by tapping.
+/// action toggles selection (deletion then lives in the inspector sheet), so assistive-tech
+/// users are not locked out of an interaction they cannot aim by tapping.
 struct MarkerOverlayView: View {
     let markers: [Marker]
     let selectedID: String?

@@ -16,9 +16,34 @@ struct FloorplanViewerScreen: View {
         content
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
-            .task { await model.observePackage() }
-            .task { await model.observeMarkers() }
-            .toolbar { viewerToolbar }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if model.content != nil, model.displayState == .ready, !model.markers.isEmpty {
+                        markerCountBadge
+                    }
+                }
+            }
+            .sheet(item: selectionBinding) { marker in
+                MarkerInspectorSheet(
+                    marker: marker,
+                    number: model.markerNumber(for: marker),
+                    onDelete: { model.deleteSelectedMarker() },
+                    onClose: { model.deselectMarker() }
+                )
+            }
+    }
+
+    /// Bridges the model's optional selection to `sheet(item:)`; any dismissal (drag, Close,
+    /// tap-away, delete) deselects. Carries no logic beyond that deselect.
+    private var selectionBinding: Binding<Marker?> {
+        Binding(
+            get: { model.selectedMarker },
+            set: {
+                if $0 == nil {
+                    model.deselectMarker()
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -28,10 +53,12 @@ struct FloorplanViewerScreen: View {
                 ZoomableTiledScrollView(
                     pyramid: viewerContent.pyramid,
                     provider: viewerContent.provider,
-                    viewport: model.viewport
+                    viewport: model.viewport,
+                    controller: model.viewportController
                 ) { imagePoint in
                     model.handleTap(imagePoint: imagePoint)
                 }
+                .overlay { centerReticle }
                 .ignoresSafeArea(edges: .bottom)
                 MarkerOverlayView(
                     markers: model.markers,
@@ -44,16 +71,12 @@ struct FloorplanViewerScreen: View {
                 .ignoresSafeArea(edges: .bottom)
             }
             .overlay(alignment: .bottom) {
-                if model.markers.isEmpty {
-                    Text("Tap the floorplan to drop a marker")
-                        .font(.caption)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(.thinMaterial, in: .capsule)
-                        .padding(.bottom, 12)
-                        .transition(.opacity)
-                }
+                bottomControls
             }
+            .overlay(alignment: .bottomTrailing) {
+                zoomCluster
+            }
+            .animation(.default, value: model.markers.isEmpty)
             .sensoryFeedback(.impact(weight: .medium), trigger: model.markers.count)
             .sensoryFeedback(.selection, trigger: model.selectedMarkerID)
         } else {
@@ -61,23 +84,97 @@ struct FloorplanViewerScreen: View {
         }
     }
 
-    @ToolbarContentBuilder
-    private var viewerToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            if model.content != nil, model.displayState == .ready {
-                if model.selectedMarkerID != nil {
-                    Button("Delete Marker", systemImage: "trash", role: .destructive) {
-                        model.deleteSelectedMarker()
-                    }
-                }
-                if !model.markers.isEmpty {
-                    Label("\(model.markers.count)", systemImage: "mappin.and.ellipse")
-                        .labelStyle(.titleAndIcon)
-                        .accessibilityLabel("\(model.markers.count) markers")
-                }
-            }
-        }
+    // MARK: - Header + canvas overlays
+
+    /// Read-only pin counter in the navigation bar's trailing slot. Deliberately a plain label in
+    /// neutral colors — not a button, and it shouldn't look like one.
+    private var markerCountBadge: some View {
+        Label("\(model.markers.count)", systemImage: "mappin.and.ellipse")
+            .labelStyle(.titleAndIcon)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .background(.quaternary, in: .capsule)
+            .accessibilityLabel("^[\(model.markers.count) marker](inflect: true) placed")
     }
+
+    /// Subtle crosshair marking exactly where "Drop Pin at Center" lands. Overlaid on the scroll
+    /// view itself (before the safe-area expansion), so its center IS the viewport center the
+    /// placement math uses.
+    private var centerReticle: some View {
+        ZStack {
+            Circle()
+                .stroke(.secondary.opacity(0.55), lineWidth: 1)
+                .frame(width: 24, height: 24)
+            Rectangle()
+                .fill(.secondary.opacity(0.55))
+                .frame(width: 14, height: 1)
+            Rectangle()
+                .fill(.secondary.opacity(0.55))
+                .frame(width: 1, height: 14)
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private var hintPill: some View {
+        Text("Tap the floorplan to drop a marker")
+            .font(.caption)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(.thinMaterial, in: .capsule)
+            .transition(.opacity)
+    }
+
+    /// Bottom-center placement control: the first-marker hint stacked above the oval drop button,
+    /// which sits directly under the reticle it aims with.
+    private var bottomControls: some View {
+        VStack(spacing: 10) {
+            if model.markers.isEmpty {
+                hintPill
+            }
+            Button {
+                model.placeMarkerAtViewportCenter()
+            } label: {
+                Label("Drop Pin", systemImage: "mappin.and.ellipse")
+            }
+            .buttonStyle(.borderedProminent)
+            .buttonBorderShape(.capsule)
+            .controlSize(.large)
+        }
+        .padding(.bottom, 12)
+    }
+
+    /// Zoom ±, visually icon-only — the text stays for VoiceOver. Both icons get the same fixed
+    /// frame: the bare −/+ glyphs differ in intrinsic size, and the circular border shape would
+    /// otherwise produce visibly different button diameters.
+    private var zoomCluster: some View {
+        VStack(spacing: 12) {
+            Button {
+                model.zoomIn()
+            } label: {
+                Label("Zoom In", systemImage: "plus")
+                    .frame(width: 24, height: 24)
+            }
+            .disabled(!model.viewport.canZoomIn)
+            Button {
+                model.zoomOut()
+            } label: {
+                Label("Zoom Out", systemImage: "minus")
+                    .frame(width: 24, height: 24)
+            }
+            .disabled(!model.viewport.canZoomOut)
+        }
+        .buttonStyle(.bordered)
+        .labelStyle(.iconOnly)
+        .font(.title2)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .padding(16)
+    }
+
+    // MARK: - Non-ready states
 
     @ViewBuilder
     private var stateView: some View {

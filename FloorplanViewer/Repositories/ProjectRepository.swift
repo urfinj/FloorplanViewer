@@ -5,11 +5,15 @@ import GRDB
 nonisolated struct ProjectRepository: Sendable {
     let dbWriter: any DatabaseWriter
 
+    /// The `marker` subquery keeps that table inside the observed region, so placing or deleting
+    /// a marker refreshes the list live — no extra observation plumbing.
     private static let listSQL = """
     SELECT p.id AS id, p.name AS name, p.sort_order AS sort_order,
            k.state_raw AS state_raw, k.failure_reason_raw AS failure_reason_raw,
            k.download_progress AS download_progress, k.retry_count AS retry_count,
-           k.next_retry_at AS next_retry_at
+           k.next_retry_at AS next_retry_at,
+           k.extracted_rel_dir AS extracted_rel_dir, k.last_success_at AS last_success_at,
+           (SELECT COUNT(*) FROM marker m WHERE m.project_id = p.id) AS marker_count
     FROM project p
     JOIN package k ON k.project_id = p.id
     ORDER BY p.sort_order ASC
