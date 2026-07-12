@@ -43,6 +43,7 @@ struct RootView: View {
             detail
         }
         .task { await startProjectFlow() }
+        .task(id: model.observationGeneration) { await model.observe() }
         .task(id: model.selectedProjectID) {
             await observeSelectedViewer()
         }
@@ -130,15 +131,13 @@ struct RootView: View {
         return model.rows.first(where: { $0.id == selectedID })?.name ?? "Floorplan"
     }
 
-    /// Establish visible rows and the reactive database stream before preparation can make its
-    /// first transition. This prevents fast device pipelines from collapsing every intermediate
-    /// state into a single skeleton → ready frame.
+    /// Establish visible rows before preparation can make its first transition. The sibling
+    /// generation-scoped task owns the reactive stream, so it is already subscribed (and remains
+    /// cancellation-bound to this view) while the coordinator begins draining.
     private func startProjectFlow() async {
         await model.bootstrap()
-        async let observation: Void = model.observe()
         await Task.yield() // let SwiftUI commit the initial package-state rows
         await environment.coordinator.start()
-        await observation
     }
 
     /// Runs above the compact detail lifecycle. Structured child observations are cancelled when

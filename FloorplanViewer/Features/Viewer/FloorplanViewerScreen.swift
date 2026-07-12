@@ -6,6 +6,7 @@ import SwiftUI
 struct FloorplanViewerScreen: View {
     let title: String
     @State private var model: ViewerViewModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(title: String, model: ViewerViewModel) {
         self.title = title
@@ -13,6 +14,7 @@ struct FloorplanViewerScreen: View {
     }
 
     var body: some View {
+        @Bindable var model = model
         content
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
@@ -30,6 +32,9 @@ struct FloorplanViewerScreen: View {
                     onDelete: { model.deleteSelectedMarker() },
                     onClose: { model.deselectMarker() }
                 )
+            }
+            .alert(item: $model.markerActionError) { error in
+                Alert(title: Text(error.title), message: Text(error.message))
             }
     }
 
@@ -76,7 +81,7 @@ struct FloorplanViewerScreen: View {
             .overlay(alignment: .bottomTrailing) {
                 zoomCluster
             }
-            .animation(.default, value: model.markers.isEmpty)
+            .animation(reduceMotion ? nil : .default, value: model.markers.isEmpty)
             .sensoryFeedback(.impact(weight: .medium), trigger: model.markers.count)
             .sensoryFeedback(.selection, trigger: model.selectedMarkerID)
         } else {
@@ -237,7 +242,7 @@ struct FloorplanViewerScreen: View {
             let when = Date(timeIntervalSince1970: nextRetryAt).formatted(.relative(presentation: .numeric))
             text += " Retries automatically \(when)."
         } else {
-            text += " The floorplan will be retried automatically."
+            text += " Automatic retries are paused. Tap Retry Now to try again."
         }
         return text
     }

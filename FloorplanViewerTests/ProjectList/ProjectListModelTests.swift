@@ -75,8 +75,18 @@ struct ProjectListModelTests {
     @Test func restoreHonorsPersistedSelection() async throws {
         let (model, appState, _) = try makeModel()
         try await appState.setLastSelectedProjectID("project-3")
-        Task { await model.start() }
+        let observing = Task { await model.start() }
+        defer { observing.cancel() }
         let restored = await eventually { model.selectedProjectID == "project-3" }
         #expect(restored)
+    }
+
+    @Test func retryObservationRequestsAFreshStructuredTask() throws {
+        let (model, _, _) = try makeModel()
+        #expect(model.observationGeneration == 0)
+
+        model.retryObservation()
+
+        #expect(model.observationGeneration == 1)
     }
 }

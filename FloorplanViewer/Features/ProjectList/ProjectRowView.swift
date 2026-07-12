@@ -100,7 +100,7 @@ struct ProjectRowView: View {
         case .ready:
             Text("\(row.name), available offline, ^[\(row.markerCount) marker](inflect: true)")
         case .failedWillRetry:
-            Text("\(row.name), preparation failed, will retry automatically")
+            Text("\(row.name), preparation failed, manual retry available")
         case .unavailableOffline:
             Text("\(row.name), not available offline")
         }

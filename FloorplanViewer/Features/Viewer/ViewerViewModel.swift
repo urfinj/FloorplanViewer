@@ -35,6 +35,8 @@ final class ViewerViewModel {
     /// dropped once a snapshot proves them persisted. Kills the tap-to-appear latency.
     private var pendingInserts: [Marker] = []
     private(set) var selectedMarkerID: String?
+    /// Set only when a user-triggered marker write fails; the screen clears it on alert dismissal.
+    var markerActionError: MarkerActionError?
     let viewport = ViewportState()
     /// Command bridge for the discrete zoom buttons; installed by the scroll-view representable.
     let viewportController = ViewportController()
@@ -283,6 +285,7 @@ final class ViewerViewModel {
                 // Persisting failed — take the optimistic pin back down.
                 self?.pendingInserts.removeAll { $0.id == marker.id }
                 self?.recomputeMarkers()
+                self?.markerActionError = .insertFailed
             }
         }
     }
@@ -328,6 +331,7 @@ final class ViewerViewModel {
                 try await markerRepository.delete(id: id)
             } catch {
                 Log.viewer.error("Deleting marker failed: \(String(describing: error), privacy: .public)")
+                markerActionError = .deleteFailed
             }
         }
     }

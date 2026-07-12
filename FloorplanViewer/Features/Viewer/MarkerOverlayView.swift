@@ -11,6 +11,7 @@ struct MarkerOverlayView: View {
     let viewport: ViewportState
     let imageSize: CGSize
     let onActivate: (String) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Culling keeps one full extra viewport alive on every side (not a thin strip): during an
     /// animated zoom step a pin's start or end position can sit well outside the visible bounds,
@@ -76,6 +77,6 @@ struct MarkerOverlayView: View {
                 .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
         }
         .scaleEffect(isSelected ? 1.15 : 1)
-        .animation(.snappy(duration: 0.15), value: isSelected)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.15), value: isSelected)
     }
 }

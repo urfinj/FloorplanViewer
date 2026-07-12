@@ -12,6 +12,7 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
     let controller: ViewportController
     let onTap: (CGPoint) -> Void
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeUIView(context: Context) -> LayoutCallbackScrollView {
         let content = TilingContentView(pyramid: pyramid, provider: provider, displayScale: displayScale)
@@ -56,10 +57,11 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
     func updateUIView(_: LayoutCallbackScrollView, context: Context) {
         context.coordinator.onTap = onTap
         context.coordinator.viewport = viewport
+        context.coordinator.reduceMotion = reduceMotion
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(viewport: viewport, onTap: onTap)
+        Coordinator(viewport: viewport, onTap: onTap, reduceMotion: reduceMotion)
     }
 
     // MARK: - Coordinator
@@ -69,11 +71,13 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
         var content: TilingContentView?
         var viewport: ViewportState
         var onTap: (CGPoint) -> Void
+        var reduceMotion: Bool
         private var lastFitScale: CGFloat?
 
-        init(viewport: ViewportState, onTap: @escaping (CGPoint) -> Void) {
+        init(viewport: ViewportState, onTap: @escaping (CGPoint) -> Void, reduceMotion: Bool) {
             self.viewport = viewport
             self.onTap = onTap
+            self.reduceMotion = reduceMotion
         }
 
         func viewForZooming(in _: UIScrollView) -> UIView? {
@@ -196,6 +200,15 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             let clamped = min(max(target, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
             guard abs(clamped - scrollView.zoomScale) > 0.0001 else { return }
             let viewportCenter = CGPoint(x: scrollView.bounds.width / 2, y: scrollView.bounds.height / 2)
+            if reduceMotion {
+                scrollView.zoomScale = clamped
+                let desired = CGPoint(
+                    x: anchor.x * clamped - viewportCenter.x,
+                    y: anchor.y * clamped - viewportCenter.y
+                )
+                scrollView.contentOffset = Self.clampedOffset(desired, in: scrollView)
+                return
+            }
             withAnimation(.easeInOut(duration: Self.zoomAnimationDuration)) {
                 UIView.animate(
                     withDuration: Self.zoomAnimationDuration,

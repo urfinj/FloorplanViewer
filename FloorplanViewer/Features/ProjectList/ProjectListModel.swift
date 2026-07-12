@@ -11,6 +11,9 @@ final class ProjectListModel {
 
     private(set) var rows: [ProjectListRow] = []
     private(set) var observationFailed = false
+    /// Incremented by the Retry action so `RootView.task(id:)` creates a fresh, structured
+    /// observation. The view owns cancellation; the model never launches an unbounded task.
+    private(set) var observationGeneration = 0
     private var selectionTask: Task<Void, Never>?
 
     var selectedProjectID: String? {
@@ -72,7 +75,7 @@ final class ProjectListModel {
     /// Re-subscribe after an observation failure.
     func retryObservation() {
         observationFailed = false
-        Task { await observe() }
+        observationGeneration &+= 1
     }
 
     /// Restores only a **previously persisted** selection. A virgin launch selects nothing —
