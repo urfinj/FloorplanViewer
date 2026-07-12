@@ -28,6 +28,9 @@ actor PackagePreparationCoordinator {
     private let logger: Logger
 
     private var inFlight: [String: Task<Void, Never>] = [:]
+    /// Stable limiter waiter per single-flight task. Selection/retry/viewer entry can promote a
+    /// queued background pipeline without spawning duplicate work or cancelling active transfers.
+    private var limiterWaiters: [String: AsyncSemaphore.WaiterID] = [:]
     /// Real failed attempts this session, per project — caps automatic retry so a permanent 404
     /// can't hot-loop. Launch (fresh map), connectivity, selection, and manual retry all reset it.
     private var sessionAttempts: [String: Int] = [:]
@@ -109,13 +112,27 @@ actor PackagePreparationCoordinator {
     }
 
     /// The sole idempotent entry point. Registers the task handle **before any suspension**, so
-    /// actor reentrancy cannot double-start a project; repeated calls while in flight are no-ops.
+    /// actor reentrancy cannot double-start a project; explicit user triggers may promote the one
+    /// existing task but never duplicate it.
     func prepare(projectID: String) {
-        guard !isStopping, inFlight[projectID] == nil else { return }
+        schedule(projectID: projectID, priority: .background)
+    }
+
+    private func schedule(projectID: String, priority: AsyncSemaphore.Priority) {
+        guard !isStopping else { return }
+        if inFlight[projectID] != nil {
+            if let waiterID = limiterWaiters[projectID] {
+                pipelineLimiter.promote(id: waiterID, to: priority)
+            }
+            return
+        }
+        let waiterID = AsyncSemaphore.WaiterID()
+        pipelineLimiter.register(id: waiterID, priority: priority)
         let task = Task { [weak self] in
             guard let self else { return }
-            await runPipeline(projectID: projectID)
+            await runPipeline(projectID: projectID, waiterID: waiterID, priority: priority)
         }
+        limiterWaiters[projectID] = waiterID
         inFlight[projectID] = task
     }
 
@@ -127,20 +144,20 @@ actor PackagePreparationCoordinator {
             logger.error("retryNow reset failed: \(String(describing: error), privacy: .public)")
         }
         sessionAttempts[projectID] = nil
-        prepare(projectID: projectID)
+        schedule(projectID: projectID, priority: .userInitiated)
     }
 
     /// A user selection is an explicit retry trigger: reset only the in-memory automatic-attempt
     /// cap, keep persisted retry history/backoff facts, and join the normal single-flight path.
-    func projectSelected(projectID: String) {
+    func projectSelected(projectID: String) async {
         sessionAttempts[projectID] = nil
-        prepare(projectID: projectID)
+        schedule(projectID: projectID, priority: .userInitiated)
     }
 
     /// The viewer's entry hook: re-verify a `ready` row against disk; broken rows demote inside
     /// the pipeline and re-prepare automatically. Delegates to `prepare` — same idempotent path.
     func revalidateReady(projectID: String) {
-        prepare(projectID: projectID)
+        schedule(projectID: projectID, priority: .userInitiated)
     }
 
     /// The **awaited** viewer-entry handshake: run (or join) the verify-or-repair pipeline for
@@ -149,7 +166,7 @@ actor PackagePreparationCoordinator {
     /// files that revalidation is about to demote.
     func packageForViewing(projectID: String) async throws -> ReadyPackage? {
         logger.notice("Viewer handshake: joining pipeline for \(projectID, privacy: .public)")
-        prepare(projectID: projectID) // no-ops into the existing task when one is in flight
+        schedule(projectID: projectID, priority: .userInitiated)
         if let task = inFlight[projectID] {
             await task.value
         }
@@ -205,15 +222,20 @@ actor PackagePreparationCoordinator {
 
     // MARK: - Pipeline
 
-    private func runPipeline(projectID: String) async {
+    private func runPipeline(
+        projectID: String,
+        waiterID: AsyncSemaphore.WaiterID,
+        priority: AsyncSemaphore.Priority
+    ) async {
         do {
-            try await pipelineLimiter.withToken {
+            try await pipelineLimiter.withToken(id: waiterID, priority: priority) {
                 await self.attempt(projectID: projectID)
             }
         } catch {
             // Only the limiter's wait can throw (cancellation while queued): nothing was started,
             // nothing to persist.
         }
+        limiterWaiters[projectID] = nil
         inFlight[projectID] = nil
         progressMarks[projectID] = nil
         if !isStopping {

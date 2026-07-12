@@ -56,6 +56,62 @@ final class MockDownloader: PackageDownloading, @unchecked Sendable {
     }
 }
 
+/// Holds each transfer until the test releases it and records the package start order. This makes
+/// coordinator priority tests deterministic without introducing real network timing.
+final class GatedDownloader: PackageDownloading, Sendable {
+    actor Gate {
+        private struct Waiter {
+            let id: UUID
+            let continuation: CheckedContinuation<Void, any Error>
+        }
+
+        private var started: [String] = []
+        private var waiters: [Waiter] = []
+
+        func wait(for packageName: String) async throws {
+            let id = UUID()
+            started.append(packageName)
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { continuation in
+                    waiters.append(Waiter(id: id, continuation: continuation))
+                }
+            } onCancel: {
+                Task { await self.cancel(id: id) }
+            }
+        }
+
+        func releaseNext() {
+            guard !waiters.isEmpty else { return }
+            waiters.removeFirst().continuation.resume()
+        }
+
+        func startedPackages() -> [String] {
+            started
+        }
+
+        private func cancel(id: UUID) {
+            guard let index = waiters.firstIndex(where: { $0.id == id }) else { return }
+            waiters.remove(at: index).continuation.resume(throwing: CancellationError())
+        }
+    }
+
+    let gate = Gate()
+
+    func download(
+        from url: URL,
+        to destination: URL,
+        progress: @escaping @Sendable (Double?) async -> Void
+    ) async throws {
+        try await gate.wait(for: url.lastPathComponent)
+        try Task.checkCancellation()
+        try FileManager.default.createDirectory(
+            at: destination.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data(repeating: 0xAB, count: 128).write(to: destination)
+        await progress(1)
+    }
+}
+
 /// Scriptable extractor. Success builds a sample-shaped tree (descriptor + max-level probe tile)
 /// so the promoted package passes the readiness file checks.
 final class MockExtractor: ArchiveExtracting, @unchecked Sendable {

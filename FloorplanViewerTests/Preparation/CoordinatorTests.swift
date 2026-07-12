@@ -61,6 +61,7 @@ struct CoordinatorTests {
 
     private func makeHarness(
         downloader: MockDownloader = MockDownloader(),
+        packageDownloader: (any PackageDownloading)? = nil,
         extractor: MockExtractor = MockExtractor(),
         validator: MockValidator = MockValidator(),
         satisfied: Bool = true,
@@ -80,7 +81,7 @@ struct CoordinatorTests {
             packages: packages,
             projects: ProjectRepository(dbWriter: db.writer),
             storage: storage,
-            downloader: downloader,
+            downloader: packageDownloader ?? downloader,
             extractor: extractor,
             validator: validator,
             pathMonitor: monitor,
@@ -417,6 +418,42 @@ struct CoordinatorTests {
         await h.coordinator.prepare(projectID: "project-2")
         try await Task.sleep(for: .milliseconds(80))
         #expect(downloader.calls == 1) // second pipeline queued behind the semaphore
+        await h.coordinator.stop()
+    }
+
+    @Test func selectingQueuedProjectPromotesItToTheNextPipelineSlot() async throws {
+        let downloader = GatedDownloader()
+        let h = try makeHarness(packageDownloader: downloader, pipelineLimit: 1)
+        defer { h.cleanUp() }
+
+        await h.coordinator.prepare(projectID: "project-1")
+        #expect(await eventually { await downloader.gate.startedPackages() == ["sample-1.tar.gz"] })
+
+        await h.coordinator.prepare(projectID: "project-2")
+        await h.coordinator.prepare(projectID: "project-3")
+        await h.coordinator.projectSelected(projectID: "project-3")
+
+        await downloader.gate.releaseNext()
+        #expect(await eventually {
+            await downloader.gate.startedPackages().count == 2
+        })
+        let firstTwo = await downloader.gate.startedPackages().prefix(2)
+        #expect(firstTwo == ["sample-1.tar.gz", "sample-3.tar.gz"])
+
+        await downloader.gate.releaseNext()
+        #expect(await eventually {
+            await downloader.gate.startedPackages().count == 3
+        })
+        let allStarted = await downloader.gate.startedPackages()
+        #expect(allStarted == [
+            "sample-1.tar.gz", "sample-3.tar.gz", "sample-2.tar.gz"
+        ])
+
+        await downloader.gate.releaseNext()
+        await h.coordinator.awaitQuiescence()
+        #expect(try await h.record("project-1").state == .ready)
+        #expect(try await h.record("project-2").state == .ready)
+        #expect(try await h.record("project-3").state == .ready)
         await h.coordinator.stop()
     }
 
