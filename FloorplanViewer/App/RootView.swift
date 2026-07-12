@@ -53,16 +53,25 @@ struct RootView: View {
     }
 
     private var sidebar: some View {
-        List(model.rows, selection: $model.selectedProjectID) { row in
-            ProjectRowView(
-                row: row,
-                previewURL: previewURL(for: row),
-                isOffline: environment.connectivity.isOffline
-            ) {
-                model.retryNow(projectID: row.id)
+        List(selection: $model.selectedProjectID) {
+            if model.rows.isEmpty, !model.observationFailed {
+                ForEach(0 ..< 3, id: \.self) { index in
+                    ProjectListSkeletonRow(announcesLoading: index == 0)
+                        .listRowSeparator(.hidden)
+                }
+            } else {
+                ForEach(model.rows) { row in
+                    ProjectRowView(
+                        row: row,
+                        previewURL: previewURL(for: row),
+                        isOffline: environment.connectivity.isOffline
+                    ) {
+                        model.retryNow(projectID: row.id)
+                    }
+                    .tag(row.id)
+                    .listRowSeparator(.hidden)
+                }
             }
-            .tag(row.id)
-            .listRowSeparator(.hidden)
         }
         .navigationTitle("Floorplans")
         .overlay {
@@ -73,8 +82,6 @@ struct RootView: View {
                     Button("Retry", systemImage: "arrow.clockwise") { model.retryObservation() }
                         .buttonStyle(.borderedProminent)
                 }
-            } else if model.rows.isEmpty {
-                ProgressView()
             }
         }
     }
@@ -96,11 +103,21 @@ struct RootView: View {
             )
             .id(selectedID) // fresh model + viewer per project; no cross-project bleed
         } else if model.selectedProjectID != nil {
-            ProgressView()
-                .controlSize(.large)
+            FloorplanLoadingView(
+                status: "Opening floorplan",
+                detail: "Checking the offline package…",
+                progress: nil
+            )
+            .navigationTitle(selectedProjectTitle)
+            .navigationBarTitleDisplayMode(.inline)
         } else {
             ContentUnavailableView("Select a Project", systemImage: "square.stack.3d.up")
         }
+    }
+
+    private var selectedProjectTitle: String {
+        guard let selectedID = model.selectedProjectID else { return "Floorplan" }
+        return model.rows.first(where: { $0.id == selectedID })?.name ?? "Floorplan"
     }
 
     /// Runs above the compact detail lifecycle. Structured child observations are cancelled when

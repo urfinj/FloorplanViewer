@@ -180,26 +180,30 @@ struct FloorplanViewerScreen: View {
     private var stateView: some View {
         switch model.displayState {
         case let .preparing(progress):
-            downloadProgressView(progress, caption: "Preparing floorplan…")
+            FloorplanLoadingView(
+                status: progress == nil ? "Preparing floorplan" : "Downloading floorplan",
+                detail: "Saving this plan for offline use.",
+                progress: progress
+            )
         case let .retrying(attempt, progress):
-            downloadProgressView(progress, caption: "Retrying (attempt \(attempt))…")
+            FloorplanLoadingView(
+                status: "Retrying floorplan",
+                detail: "Attempt \(attempt) · your existing offline data stays safe.",
+                progress: progress
+            )
         case .extracting:
-            VStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Extracting floorplan…")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            FloorplanLoadingView(
+                status: "Preparing tiles",
+                detail: "Finishing the offline floorplan package.",
+                progress: nil
+            )
         case .ready:
             // Ready row, content still opening via the handshake.
-            VStack(spacing: 12) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Opening floorplan…")
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            FloorplanLoadingView(
+                status: "Opening floorplan",
+                detail: "Loading the tiled canvas…",
+                progress: nil
+            )
         case let .failedWillRetry(reason, nextRetryAt):
             ContentUnavailableView {
                 Label("Preparation Failed", systemImage: "exclamationmark.triangle")
@@ -216,25 +220,6 @@ struct FloorplanViewerScreen: View {
                 Text("This floorplan hasn’t been prepared yet. It will download automatically when you’re back online.")
             }
         }
-    }
-
-    private func downloadProgressView(_ progress: Double?, caption: String) -> some View {
-        VStack(spacing: 16) {
-            if let progress {
-                ProgressView(value: progress) {
-                    Text(caption)
-                } currentValueLabel: {
-                    Text("\(Int(progress * 100))%")
-                }
-                .frame(maxWidth: 280)
-            } else {
-                ProgressView()
-                    .controlSize(.large)
-                Text(caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func failureDescription(reason: PackageFailureReason, nextRetryAt: Double?) -> String {
