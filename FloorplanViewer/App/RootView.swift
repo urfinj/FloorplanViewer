@@ -7,11 +7,7 @@ struct RootView: View {
     let environment: AppEnvironment
 
     @State private var model: ProjectListModel
-    @State private var connectivity: ConnectivityState
     @Environment(\.scenePhase) private var scenePhase
-    #if DEBUG
-        @State private var showSpike = false
-    #endif
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -20,7 +16,6 @@ struct RootView: View {
             appState: environment.appStateRepository,
             preparation: environment.coordinator
         ))
-        _connectivity = State(initialValue: ConnectivityState(monitor: environment.pathMonitor))
     }
 
     var body: some View {
@@ -43,7 +38,7 @@ struct RootView: View {
 
     private var sidebar: some View {
         List(model.rows, selection: $model.selectedProjectID) { row in
-            ProjectRowView(row: row, isOffline: connectivity.isOffline) {
+            ProjectRowView(row: row, isOffline: environment.connectivity.isOffline) {
                 model.retryNow(projectID: row.id)
             }
             .tag(row.id)
@@ -61,24 +56,13 @@ struct RootView: View {
                 ProgressView()
             }
         }
-        #if DEBUG
-        .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Tiling Spike", systemImage: "square.grid.3x3") { showSpike = true }
-                }
-            }
-            .sheet(isPresented: $showSpike) {
-                SpikeTiledScreen()
-            }
-        #endif
     }
 
     @ViewBuilder
     private var detail: some View {
-        if let selected = model.rows.first(where: { $0.id == model.selectedProjectID }) {
-            FloorplanViewerScreen(row: selected, isOffline: connectivity.isOffline) {
-                model.retryNow(projectID: selected.id)
-            }
+        if let selectedID = model.selectedProjectID {
+            FloorplanViewerScreen(model: environment.makeViewerModel(projectID: selectedID))
+                .id(selectedID) // fresh model + viewer per project; no cross-project bleed
         } else {
             ContentUnavailableView("Select a Project", systemImage: "square.stack.3d.up")
         }

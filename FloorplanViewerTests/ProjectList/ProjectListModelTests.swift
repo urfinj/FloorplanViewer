@@ -21,6 +21,10 @@ struct ProjectListModelTests {
         }
 
         func prepareAll() async {}
+
+        func packageForViewing(projectID _: String) async throws -> ReadyPackage? {
+            nil
+        }
     }
 
     private func makeModel() throws -> (ProjectListModel, AppStateRepository, SpyPreparation) {

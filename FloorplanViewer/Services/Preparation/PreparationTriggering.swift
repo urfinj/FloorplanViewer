@@ -6,6 +6,8 @@ nonisolated protocol PreparationTriggering: Sendable {
     func prepare(projectID: String) async
     func retryNow(projectID: String) async
     func prepareAll() async
+    /// Awaited viewer entry: verify-or-repair settles first, then the validated package (or nil).
+    func packageForViewing(projectID: String) async throws -> ReadyPackage?
 }
 
 extension PackagePreparationCoordinator: PreparationTriggering {}

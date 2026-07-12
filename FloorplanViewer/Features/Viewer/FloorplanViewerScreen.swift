@@ -1,26 +1,73 @@
 import SwiftUI
 
-/// The detail pane for a selected project. Phase 5 interim: renders the live display state
-/// full-size (Phase 6 swaps the `.ready` branch for the native tiled viewer — the state
-/// scaffolding around it stays).
+/// The detail pane for one project: state scaffolding around the native tiled viewer. Renders by
+/// live display state and auto-flips into the viewer the moment the package is ready — content
+/// comes only from the awaited `packageForViewing` handshake inside the model.
 struct FloorplanViewerScreen: View {
-    let row: ProjectListRow
-    let isOffline: Bool
-    let onRetry: () -> Void
+    @State private var model: ViewerViewModel
 
-    private var displayState: PackageDisplayState {
-        .make(row: row, isOffline: isOffline)
+    init(model: ViewerViewModel) {
+        _model = State(initialValue: model)
     }
 
     var body: some View {
         content
-            .navigationTitle(row.name)
+            .navigationTitle(navigationTitle)
             .navigationBarTitleDisplayMode(.inline)
+            .task { await model.observePackage() }
+            .task { await model.observeMarkers() }
+            .toolbar { viewerToolbar }
+    }
+
+    private var navigationTitle: String {
+        // Project names are "Project N" derived from the id; the row name isn't observed here.
+        model.projectID.replacingOccurrences(of: "project-", with: "Project ")
     }
 
     @ViewBuilder
     private var content: some View {
-        switch displayState {
+        if let viewerContent = model.content, model.displayState == .ready {
+            ZStack {
+                ZoomableTiledScrollView(
+                    pyramid: viewerContent.pyramid,
+                    provider: viewerContent.provider,
+                    viewport: model.viewport
+                ) { imagePoint in
+                    model.handleTap(imagePoint: imagePoint)
+                }
+                .ignoresSafeArea(edges: .bottom)
+                MarkerOverlayView(
+                    markers: model.markers,
+                    selectedID: model.selectedMarkerID,
+                    viewport: model.viewport,
+                    imageSize: viewerContent.imageSize
+                )
+                .ignoresSafeArea(edges: .bottom)
+            }
+        } else {
+            stateView
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var viewerToolbar: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            if model.content != nil, model.displayState == .ready {
+                if model.selectedMarkerID != nil {
+                    Button("Delete Marker", systemImage: "trash", role: .destructive) {
+                        model.deleteSelectedMarker()
+                    }
+                }
+                Label("\(model.markers.count)", systemImage: "mappin.and.ellipse")
+                    .labelStyle(.titleAndIcon)
+                    .accessibilityLabel("\(model.markers.count) markers")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var stateView: some View {
+        switch model.displayState {
         case let .preparing(progress):
             VStack(spacing: 16) {
                 if let progress {
@@ -55,19 +102,17 @@ struct FloorplanViewerScreen: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .ready:
-            // Phase 6 replaces this with the native tiled viewer.
-            ContentUnavailableView {
-                Label("Floorplan Ready", systemImage: "map")
-            } description: {
-                Text("The native tiled viewer arrives in the next phase.")
-            }
+            // Ready row, content still opening via the handshake.
+            ProgressView()
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .failedWillRetry:
             ContentUnavailableView {
                 Label("Preparation Failed", systemImage: "exclamationmark.triangle")
             } description: {
                 Text("The floorplan will be retried automatically.")
             } actions: {
-                Button("Retry Now", systemImage: "arrow.clockwise", action: onRetry)
+                Button("Retry Now", systemImage: "arrow.clockwise") { model.retryNow() }
                     .buttonStyle(.borderedProminent)
             }
         case .unavailableOffline:

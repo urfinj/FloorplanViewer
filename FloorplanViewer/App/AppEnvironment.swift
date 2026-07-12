@@ -18,6 +18,8 @@ final class AppEnvironment {
     let pathMonitor: any PathMonitoring
     let coordinator: PackagePreparationCoordinator
     let launchRecovery: LaunchRecovery
+    /// Shared live-reachability for display mapping (second sink on `pathMonitor`).
+    let connectivity: ConnectivityState
 
     /// Pure DI initializer — tests inject an in-memory DB, a `TestClock`, scratch storage, and a
     /// stub monitor.
@@ -48,6 +50,19 @@ final class AppEnvironment {
             validator: DZIPackageValidator(),
             pathMonitor: pathMonitor,
             clock: clock
+        )
+        connectivity = ConnectivityState(monitor: pathMonitor)
+    }
+
+    /// One viewer model per selected project (`.id(projectID)` gives per-project identity).
+    func makeViewerModel(projectID: String) -> ViewerViewModel {
+        ViewerViewModel(
+            projectID: projectID,
+            packages: packageRepository,
+            markerRepository: markerRepository,
+            preparation: coordinator,
+            connectivity: connectivity,
+            storage: storage
         )
     }
 

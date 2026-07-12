@@ -136,6 +136,18 @@ actor PackagePreparationCoordinator {
         prepare(projectID: projectID)
     }
 
+    /// The **awaited** viewer-entry handshake: run (or join) the verify-or-repair pipeline for
+    /// this project, wait for it to settle, then read the validated `ReadyPackage`. The viewer
+    /// consumes only this — never paths from an unverified row — so it can never open stale
+    /// files that revalidation is about to demote.
+    func packageForViewing(projectID: String) async throws -> ReadyPackage? {
+        prepare(projectID: projectID) // no-ops into the existing task when one is in flight
+        if let task = inFlight[projectID] {
+            await task.value
+        }
+        return try await packages.readyPackage(projectID: projectID)
+    }
+
     /// Connectivity restored: parked and failed rows become due immediately; session caps reset.
     func connectivityDidSatisfy() async {
         guard !isStopping else { return }
