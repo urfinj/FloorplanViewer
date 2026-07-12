@@ -1,0 +1,22 @@
+# SwiftFormat configuration for FloorplanViewer.
+--swiftversion 6.0
+
+# Rules
+--enable isEmpty
+--enable redundantSelf
+--enable trailingCommas
+--enable wrapMultilineStatementBraces
+
+--self remove
+--importgrouping testable-bottom
+--commas inline
+--trimwhitespace always
+--indent 4
+--maxwidth 120
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--decimalgrouping ignore
+
+# Exclusions (generated / build artifacts)
+--exclude .build,DerivedData,FloorplanViewer.xcodeproj,Generated,**/*.generated.swift

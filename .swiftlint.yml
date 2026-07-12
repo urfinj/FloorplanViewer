@@ -1,0 +1,48 @@
+# SwiftLint configuration for FloorplanViewer.
+# Enforces: no force-unwrap / try! / as! in production code.
+
+only_rules: # keep the lane fast and deterministic; opt in explicitly.
+  - force_unwrapping
+  - force_try
+  - force_cast
+  - empty_count
+  - fatal_error_message
+  - implicit_optional_initialization
+  - unused_optional_binding
+  - vertical_whitespace
+  - trailing_newline
+  - trailing_whitespace
+  - colon
+  - comma
+  - return_arrow_whitespace
+  - custom_rules
+
+force_unwrapping:
+  severity: error
+force_try:
+  severity: error
+force_cast:
+  severity: error
+
+custom_rules:
+  no_fixed_font_size:
+    name: "No fixed font size"
+    regex: 'Font\.system\(size:'
+    match_kinds: [identifier] # code only — ignore comments/strings
+    message: "Use text styles / @ScaledMetric (Dynamic Type), not fixed sizes."
+    severity: error
+  no_tap_gesture_selection:
+    name: "No onTapGesture selection"
+    regex: '\.onTapGesture'
+    included: ".*/Features/.*"
+    message: "Use Button + accessibility traits for tappable/selectable views."
+    severity: error
+
+excluded:
+  - .build
+  - DerivedData
+  - FloorplanViewer.xcodeproj
+  - Generated
+  - FloorplanViewerTests # tests may force-unwrap/try
+
+reporter: "xcode"

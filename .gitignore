@@ -1,0 +1,24 @@
+# Xcode / build
+DerivedData/
+build/
+*.xcodeproj
+*.xcworkspace
+!default.xcworkspace
+*.xcresult
+Generated/
+
+# SwiftPM
+.build/
+.swiftpm/
+
+# Generated Info.plist lives under Generated/ (git-ignored above)
+
+# macOS
+.DS_Store
+
+# Local scratch
+*.tmp
+*.log
+
+# Large real sample archives dropped in for local spike checks (never committed).
+FloorplanViewerTests/Fixtures/*.tar.gz
