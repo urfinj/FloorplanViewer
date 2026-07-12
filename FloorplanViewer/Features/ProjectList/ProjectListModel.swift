@@ -52,14 +52,15 @@ final class ProjectListModel {
         Task { await observe() }
     }
 
+    /// Restores only a **previously persisted** selection. A virgin launch selects nothing —
+    /// the assignment flow starts at the project list (iPhone shows the list; iPad shows the
+    /// "Select a Project" placeholder).
     private func restoreSelection() async {
         do {
             let known = try await projects.fetchAll().map(\.id)
             let persisted = try await appState.lastSelectedProjectID()
             if let persisted, known.contains(persisted) {
                 selectedProjectID = persisted
-            } else if let first = known.first {
-                selectedProjectID = first // fallback: Project 1, persisted by didSet
             }
         } catch {
             Log.app.error("Restoring selection failed: \(String(describing: error), privacy: .public)")

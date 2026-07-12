@@ -50,15 +50,14 @@ struct ProjectListModelTests {
         #expect(persisted)
     }
 
-    @Test func restoreFallsBackToFirstProjectAndPersistsIt() async throws {
-        let (model, appState, _) = try makeModel()
-        // Nothing persisted → restore should select and persist Project 1.
-        Task { await model.start() } // runs restore, then observes until the task is torn down
-        let restored = await eventually {
-            let stored = try? await appState.lastSelectedProjectID()
-            return model.selectedProjectID == "project-1" && stored == "project-1"
-        }
-        #expect(restored)
+    @Test func virginLaunchSelectsNothingSoTheListShowsFirst() async throws {
+        let (model, _, spy) = try makeModel()
+        // Nothing persisted → no auto-selection (assignment flow starts at the project list).
+        let observing = Task { await model.start() }
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(model.selectedProjectID == nil)
+        #expect(spy.prepared.isEmpty)
+        observing.cancel()
     }
 
     @Test func restoreHonorsPersistedSelection() async throws {

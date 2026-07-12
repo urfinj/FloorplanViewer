@@ -1,22 +1,30 @@
-import os
 import UIKit
 
 /// The CATiledLayer-backed floorplan canvas. Its coordinate space is full-resolution image
 /// pixels (frame = pyramid.fullSize, 1 pt ≡ 1 px), so scroll math, tap locations, and marker
 /// anchors all share one space.
 ///
+/// **Scale recipe (canonical tiled-scroll-view approach):** `contentScaleFactor` is pinned to 1
+/// — UIKit force-sets the screen scale when the view joins a window, which makes CATiledLayer
+/// rescale its `tileSize` and re-bucket levels of detail out from under the level math (symptom:
+/// high-resolution levels never render; the plan stays an upscaled blur). With the layer's
+/// `contentsScale` fixed at 1, `ctx.ctm.a` in `draw` is exactly the rendered LOD scale, and
+/// `levelsOfDetailBias` supplies the Retina/over-zoom headroom.
+///
 /// `CATiledLayer` invokes `draw(_:)` concurrently on **background threads** — the override is
-/// explicitly `nonisolated` and touches only immutable `Sendable` state plus a lock-protected
-/// scale snapshot maintained from MainActor lifecycle callbacks.
+/// explicitly `nonisolated` and touches only immutable `Sendable` state.
 final class TilingContentView: UIView {
     private let pyramid: TilePyramid
     private let provider: TileProvider
-    /// The layer's contentsScale, mirrored for the nonisolated draw path (`layer` itself is
-    /// MainActor-isolated). Written on window attach; read per background tile draw.
-    private let scaleBox = OSAllocatedUnfairLock<CGFloat>(initialState: 1)
 
     override class var layerClass: AnyClass {
         CATiledLayer.self
+    }
+
+    /// UIKit assigns the screen scale on window attach; keep the tiled layer at 1 (see header).
+    override var contentScaleFactor: CGFloat {
+        get { super.contentScaleFactor }
+        set { _ = newValue; super.contentScaleFactor = 1 }
     }
 
     init(pyramid: TilePyramid, provider: TileProvider) {
@@ -25,7 +33,14 @@ final class TilingContentView: UIView {
         super.init(frame: CGRect(origin: .zero, size: pyramid.fullSize))
         backgroundColor = .white // plan paper behind not-yet-decoded tiles
         isOpaque = true
-        configureTiledLayer(displayScale: 1)
+        if let tiled = layer as? CATiledLayer {
+            tiled.contentsScale = 1
+            tiled.levelsOfDetail = pyramid.levelCount
+            // Render up to 4× above LOD 1: covers Retina sharpness at max zoom and pinch bounce.
+            tiled.levelsOfDetailBias = 2
+            let side = CGFloat(pyramid.descriptor.tileSize)
+            tiled.tileSize = CGSize(width: side, height: side) // 1 draw callback ≈ 1 DZI tile
+        }
     }
 
     @available(*, unavailable)
@@ -33,35 +48,12 @@ final class TilingContentView: UIView {
         nil
     }
 
-    /// The display scale is only known once attached to a window; retune the layer for it so
-    /// tiles rasterize at native resolution (sharp on Retina) and level math stays exact.
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        guard window != nil else { return }
-        configureTiledLayer(displayScale: max(1, traitCollection.displayScale))
-    }
-
-    private func configureTiledLayer(displayScale: CGFloat) {
-        guard let tiled = layer as? CATiledLayer else { return }
-        scaleBox.withLock { $0 = displayScale }
-        tiled.contentsScale = displayScale
-        tiled.levelsOfDetail = pyramid.levelCount
-        // Keep rendering the full-res level sharp when over-zoomed past 1:1 (max zoom ≤ 8×fit).
-        tiled.levelsOfDetailBias = 3
-        // One draw callback ≈ one DZI tile at every LOD (both grids halve together). Set AFTER
-        // contentsScale: CATiledLayer rescales tileSize itself when contentsScale changes.
-        let side = CGFloat(pyramid.descriptor.tileSize) * displayScale
-        tiled.tileSize = CGSize(width: side, height: side)
-        setNeedsDisplay()
-    }
-
     /// Called by CATiledLayer per tile, concurrently, off the main thread — hence explicitly
     /// `nonisolated` (a legal isolation relaxation for an override); it reads only immutable
-    /// `Sendable` state and the lock-protected scale.
+    /// `Sendable` state. With contentsScale pinned to 1, `ctm.a` IS the LOD scale.
     override nonisolated func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
-        let contentsScale = scaleBox.withLock { $0 }
-        let lodScale = abs(ctx.ctm.a) / contentsScale
+        let lodScale = abs(ctx.ctm.a)
         let level = pyramid.folderLevel(forLODScale: lodScale)
         let (cols, rows) = pyramid.tileIndices(intersecting: rect, atLevel: level)
         for row in rows {

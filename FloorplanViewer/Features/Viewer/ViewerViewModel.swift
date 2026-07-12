@@ -68,8 +68,20 @@ final class ViewerViewModel {
             for try await snapshot in packages.observePackage(projectID: projectID) {
                 record = snapshot
                 if snapshot?.state == .ready {
-                    if content == nil {
+                    // Self-healing open: a stable ready row emits exactly one snapshot, so a
+                    // single lost race would otherwise spin forever. Retry until content exists,
+                    // the row leaves ready, or the screen's task is cancelled.
+                    while content == nil, record?.state == .ready, !Task.isCancelled {
                         await openForViewing()
+                        if content == nil {
+                            Log.viewer
+                                .warning("Viewer open yielded no content for \(projectID, privacy: .public); retrying")
+                            do {
+                                try await Task.sleep(for: .seconds(1))
+                            } catch {
+                                return // screen went away — cancellation must not be swallowed
+                            }
+                        }
                     }
                 } else {
                     content = nil // demoted / re-preparing: never render stale paths
@@ -100,10 +112,14 @@ final class ViewerViewModel {
         guard !isOpening else { return }
         isOpening = true
         defer { isOpening = false }
+        Log.viewer.notice("Viewer entry: awaiting verify-or-repair for \(projectID, privacy: .public)")
         do {
-            guard let package = try await preparation.packageForViewing(projectID: projectID),
-                  let tilesURL = storage.absoluteURL(for: package.tilesRelDir)
-            else { return }
+            let package = try await preparation.packageForViewing(projectID: projectID)
+            Log.viewer.notice("""
+            Viewer entry settled for \(projectID, privacy: .public): \
+            \(package == nil ? "no package (demoted or not ready)" : "validated package", privacy: .public)
+            """)
+            guard let package, let tilesURL = storage.absoluteURL(for: package.tilesRelDir) else { return }
             let descriptor = try DZIDescriptor(
                 width: package.width,
                 height: package.height,

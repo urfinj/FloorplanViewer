@@ -85,7 +85,10 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             let wasAtFit = lastFitScale.map { abs(scrollView.zoomScale - $0) < 0.001 } ?? true
             scrollView.minimumZoomScale = fit
             scrollView.maximumZoomScale = ViewportMath.maxScale(fit: fit)
-            if wasAtFit || scrollView.zoomScale < fit {
+            // Only re-fit when the user was already fitted (first layout, rotation at fit).
+            // Never clamp `zoomScale < fit` here: layout runs during pinch, and the bounce
+            // below minimum is UIScrollView's own gesture behavior — stomping it fights the pinch.
+            if wasAtFit {
                 scrollView.zoomScale = fit
                 centerContent(scrollView)
             }

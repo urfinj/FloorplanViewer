@@ -141,11 +141,17 @@ actor PackagePreparationCoordinator {
     /// consumes only this — never paths from an unverified row — so it can never open stale
     /// files that revalidation is about to demote.
     func packageForViewing(projectID: String) async throws -> ReadyPackage? {
+        logger.notice("Viewer handshake: joining pipeline for \(projectID, privacy: .public)")
         prepare(projectID: projectID) // no-ops into the existing task when one is in flight
         if let task = inFlight[projectID] {
             await task.value
         }
-        return try await packages.readyPackage(projectID: projectID)
+        let package = try await packages.readyPackage(projectID: projectID)
+        logger.notice("""
+        Viewer handshake settled for \(projectID, privacy: .public): \
+        \(package == nil ? "nil" : "ready", privacy: .public)
+        """)
+        return package
     }
 
     /// Connectivity restored: parked and failed rows become due immediately; session caps reset.
