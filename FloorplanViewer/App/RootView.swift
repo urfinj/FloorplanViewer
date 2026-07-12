@@ -11,6 +11,7 @@ struct RootView: View {
     /// transient compact detail. iOS 26/27 can keep/reuse a collapsed `NavigationSplitView`
     /// detail after Back without reliably restarting detail-scoped `.task` modifiers.
     @State private var viewerModel: ViewerViewModel?
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
     @Environment(\.scenePhase) private var scenePhase
 
     init(environment: AppEnvironment) {
@@ -24,7 +25,7 @@ struct RootView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             sidebar
         } detail: {
             detail
@@ -37,6 +38,13 @@ struct RootView: View {
         }
         .task(id: model.selectedProjectID) {
             await observeSelectedViewer()
+        }
+        .onChange(of: model.selectedProjectID) { _, selectedID in
+            preferredCompactColumn = selectedID == nil ? .sidebar : .detail
+        }
+        .onChange(of: preferredCompactColumn) { _, column in
+            guard column == .sidebar, model.selectedProjectID != nil else { return }
+            model.showProjectList()
         }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

@@ -16,7 +16,8 @@ final class ProjectListModel {
     var selectedProjectID: String? {
         didSet {
             selectionTask?.cancel()
-            guard oldValue != selectedProjectID, let id = selectedProjectID else { return }
+            guard oldValue != selectedProjectID else { return }
+            let id = selectedProjectID
             selectionTask = Task { [appState, preparation] in
                 do {
                     try Task.checkCancellation()
@@ -29,6 +30,7 @@ final class ProjectListModel {
                     Log.app.error("Persisting selection failed: \(String(describing: error), privacy: .public)")
                 }
                 guard !Task.isCancelled else { return }
+                guard let id else { return }
                 // Assignment trigger: preparing is retried when the project is selected.
                 await preparation.projectSelected(projectID: id)
             }
@@ -52,6 +54,12 @@ final class ProjectListModel {
         Task { [preparation] in
             await preparation.retryNow(projectID: projectID)
         }
+    }
+
+    /// Records that the user intentionally navigated back to the project list. A subsequent
+    /// launch must restore the list rather than reopening the previously viewed project.
+    func showProjectList() {
+        selectedProjectID = nil
     }
 
     /// Re-subscribe after an observation failure.
