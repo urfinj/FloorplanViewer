@@ -30,12 +30,7 @@ struct RootView: View {
         } detail: {
             detail
         }
-        .task {
-            await environment.coordinator.start()
-        }
-        .task {
-            await model.start()
-        }
+        .task { await startProjectFlow() }
         .task(id: model.selectedProjectID) {
             await observeSelectedViewer()
         }
@@ -121,6 +116,17 @@ struct RootView: View {
     private var selectedProjectTitle: String {
         guard let selectedID = model.selectedProjectID else { return "Floorplan" }
         return model.rows.first(where: { $0.id == selectedID })?.name ?? "Floorplan"
+    }
+
+    /// Establish visible rows and the reactive database stream before preparation can make its
+    /// first transition. This prevents fast device pipelines from collapsing every intermediate
+    /// state into a single skeleton → ready frame.
+    private func startProjectFlow() async {
+        await model.bootstrap()
+        async let observation: Void = model.observe()
+        await Task.yield() // let SwiftUI commit the initial package-state rows
+        await environment.coordinator.start()
+        await observation
     }
 
     /// Runs above the compact detail lifecycle. Structured child observations are cancelled when

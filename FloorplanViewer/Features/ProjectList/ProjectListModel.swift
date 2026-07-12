@@ -43,12 +43,17 @@ final class ProjectListModel {
         self.preparation = preparation
     }
 
-    /// Restores a persisted selection, if one exists, and then observes the list until the owning
-    /// view goes away. Call from `.task`.
-    func start() async {
+    /// Loads the first visible snapshot and restores navigation. This returns so the root can
+    /// attach observation and only then start package preparation.
+    func bootstrap() async {
         async let selectionRestore: Void = restoreSelection()
         await loadInitialRows()
         await selectionRestore
+    }
+
+    /// Convenience lifecycle used by focused model tests and non-UI owners.
+    func start() async {
+        await bootstrap()
         await observe()
     }
 
@@ -99,7 +104,8 @@ final class ProjectListModel {
         }
     }
 
-    private func observe() async {
+    /// Keeps the already-painted snapshot synchronized with package and marker writes.
+    func observe() async {
         do {
             for try await snapshot in projects.observeProjectList() {
                 rows = snapshot
