@@ -12,31 +12,39 @@ final class AppLauncher {
     }
 
     private(set) var phase: Phase = .loading
+    /// Serializes launch/retry/reset. Changing `phase` to `.loading` can cause the root `.task`
+    /// to run again while a button-triggered retry is already suspended in `liveResult()`.
+    private var launchInProgress = false
 
     /// Called once from the root scene's `.task`.
     func start() async {
         guard case .loading = phase else { return }
-        await load()
+        await launch(resetFirst: false)
     }
 
     /// Retry after a failure: re-subscribe from `loading`.
     func retry() async {
-        phase = .loading
-        await load()
+        await launch(resetFirst: false)
     }
 
     /// Destructive reset (confirmed in the UI): clear the local store, then re-attempt launch.
     func reset() async {
-        do {
-            try await AppEnvironment.resetLocalStore()
-        } catch {
-            Log.app.error("Local store reset failed: \(String(describing: error), privacy: .public)")
-        }
-        phase = .loading
-        await load()
+        await launch(resetFirst: true)
     }
 
-    private func load() async {
+    private func launch(resetFirst: Bool) async {
+        guard !launchInProgress else { return }
+        launchInProgress = true
+        defer { launchInProgress = false }
+        phase = .loading
+
+        if resetFirst {
+            do {
+                try await AppEnvironment.resetLocalStore()
+            } catch {
+                Log.app.error("Local store reset failed: \(String(describing: error), privacy: .public)")
+            }
+        }
         switch await AppEnvironment.liveResult() {
         case let .success(environment):
             phase = .ready(environment)

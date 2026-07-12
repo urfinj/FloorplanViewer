@@ -30,6 +30,7 @@ final class ThumbnailLoader {
 
     @concurrent
     nonisolated static func downsample(url: URL, maxPixel: CGFloat, scale: CGFloat) async -> sending UIImage? {
+        guard !Task.isCancelled else { return nil }
         let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
         guard let source = CGImageSourceCreateWithURL(url as CFURL, sourceOptions) else { return nil }
         let options = [
@@ -39,6 +40,7 @@ final class ThumbnailLoader {
             kCGImageSourceThumbnailMaxPixelSize: maxPixel
         ] as CFDictionary
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options) else { return nil }
+        guard !Task.isCancelled else { return nil }
         return UIImage(cgImage: cgImage, scale: scale, orientation: .up)
     }
 }

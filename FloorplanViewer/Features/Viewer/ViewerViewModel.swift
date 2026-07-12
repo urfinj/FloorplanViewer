@@ -66,37 +66,66 @@ final class ViewerViewModel {
         self.storage = storage
     }
 
-    // MARK: - Observation (each runs in its own `.task` on the screen)
+    // MARK: - Observation (structured children of RootView's selected-project task)
 
     func observePackage() async {
         defer {
             cancelOpening()
         }
-        do {
-            for try await snapshot in packages.observePackage(projectID: projectID) {
-                record = snapshot
-                if snapshot?.state == .ready {
-                    startOpeningIfNeeded()
-                } else {
-                    cancelOpening()
-                    content = nil // demoted / re-preparing: never render stale paths
+        while !Task.isCancelled {
+            do {
+                for try await snapshot in packages.observePackage(projectID: projectID) {
+                    record = snapshot
+                    if snapshot?.state == .ready {
+                        startOpeningIfNeeded()
+                    } else {
+                        cancelOpening()
+                        content = nil // demoted / re-preparing: never render stale paths
+                    }
                 }
+                if Task.isCancelled {
+                    return
+                }
+                Log.viewer.warning("Package observation ended for \(self.projectID, privacy: .public); reconnecting")
+            } catch {
+                if error is CancellationError || Task.isCancelled {
+                    return
+                }
+                Log.viewer.error("Package observation failed: \(String(describing: error), privacy: .public)")
             }
-        } catch {
-            Log.viewer.error("Package observation failed: \(String(describing: error), privacy: .public)")
+            guard await waitBeforeObservationReconnect() else { return }
         }
     }
 
     func observeMarkers() async {
-        do {
-            for try await snapshot in markerRepository.observeMarkers(projectID: projectID) {
-                markers = snapshot
-                if let selected = selectedMarkerID, !snapshot.contains(where: { $0.id == selected }) {
-                    selectedMarkerID = nil
+        while !Task.isCancelled {
+            do {
+                for try await snapshot in markerRepository.observeMarkers(projectID: projectID) {
+                    markers = snapshot
+                    if let selected = selectedMarkerID, !snapshot.contains(where: { $0.id == selected }) {
+                        selectedMarkerID = nil
+                    }
                 }
+                if Task.isCancelled {
+                    return
+                }
+                Log.viewer.warning("Marker observation ended for \(self.projectID, privacy: .public); reconnecting")
+            } catch {
+                if error is CancellationError || Task.isCancelled {
+                    return
+                }
+                Log.viewer.error("Marker observation failed: \(String(describing: error), privacy: .public)")
             }
+            guard await waitBeforeObservationReconnect() else { return }
+        }
+    }
+
+    private func waitBeforeObservationReconnect() async -> Bool {
+        do {
+            try await Task.sleep(for: .seconds(1))
+            return !Task.isCancelled
         } catch {
-            Log.viewer.error("Marker observation failed: \(String(describing: error), privacy: .public)")
+            return false
         }
     }
 

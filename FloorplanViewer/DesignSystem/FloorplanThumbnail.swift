@@ -49,10 +49,13 @@ struct FloorplanThumbnail: View {
     }
 
     private func load() async {
+        let requestedTaskID = taskID
         guard displayState == .ready, let previewURL else {
             image = nil
             return
         }
-        image = await ThumbnailLoader.shared.thumbnail(at: previewURL, side: side, scale: displayScale)
+        let loaded = await ThumbnailLoader.shared.thumbnail(at: previewURL, side: side, scale: displayScale)
+        guard !Task.isCancelled, taskID == requestedTaskID else { return }
+        image = loaded
     }
 }
