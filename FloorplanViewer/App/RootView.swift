@@ -55,9 +55,12 @@ struct RootView: View {
     private var sidebar: some View {
         List(selection: $model.selectedProjectID) {
             if model.rows.isEmpty, !model.observationFailed {
-                ForEach(0 ..< 3, id: \.self) { index in
-                    ProjectListSkeletonRow(announcesLoading: index == 0)
-                        .listRowSeparator(.hidden)
+                ForEach(PackageCatalog.seed, id: \.id) { project in
+                    ProjectListSkeletonRow(
+                        name: project.name,
+                        announcesLoading: project.id == PackageCatalog.seed.first?.id
+                    )
+                    .listRowSeparator(.hidden)
                 }
             } else {
                 ForEach(model.rows) { row in

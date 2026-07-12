@@ -46,7 +46,9 @@ final class ProjectListModel {
     /// Restores a persisted selection, if one exists, and then observes the list until the owning
     /// view goes away. Call from `.task`.
     func start() async {
-        await restoreSelection()
+        async let selectionRestore: Void = restoreSelection()
+        await loadInitialRows()
+        await selectionRestore
         await observe()
     }
 
@@ -80,6 +82,20 @@ final class ProjectListModel {
             }
         } catch {
             Log.app.error("Restoring selection failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// Do not make first paint wait for the reactive stream's initial emission while the
+    /// preparation coordinator is also writing launch transitions. The seeded rows already hold
+    /// meaningful per-project states; observation takes over immediately after this snapshot.
+    private func loadInitialRows() async {
+        do {
+            rows = try await projects.fetchProjectList()
+        } catch {
+            if error is CancellationError || Task.isCancelled {
+                return
+            }
+            Log.app.error("Initial project snapshot failed: \(String(describing: error), privacy: .public)")
         }
     }
 

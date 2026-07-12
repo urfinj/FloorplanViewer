@@ -6,9 +6,12 @@ struct LaunchView: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(0 ..< 3, id: \.self) { index in
-                    ProjectListSkeletonRow(announcesLoading: index == 0)
-                        .listRowSeparator(.hidden)
+                ForEach(PackageCatalog.seed, id: \.id) { project in
+                    ProjectListSkeletonRow(
+                        name: project.name,
+                        announcesLoading: project.id == PackageCatalog.seed.first?.id
+                    )
+                    .listRowSeparator(.hidden)
                 }
             }
             .navigationTitle("Floorplans")
