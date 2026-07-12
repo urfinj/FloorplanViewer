@@ -22,7 +22,7 @@ struct PackageStorageTests {
         #expect(storage.relativePath(for: abs) == "archives/project-1.tar.gz")
     }
 
-    @Test(arguments: ["../escape.txt", "../../etc/passwd", "archives/../../out.txt"])
+    @Test(arguments: ["../escape.txt", "../../etc/passwd", "archives/../../out.txt", "/etc/passwd", "/abs.txt"])
     func rejectsEscapingPaths(relPath: String) throws {
         let (storage, root) = try makeStorage()
         defer { try? FileManager.default.removeItem(at: root) }

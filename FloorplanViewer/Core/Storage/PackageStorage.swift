@@ -37,6 +37,9 @@ final nonisolated class PackageStorage: Sendable {
     // MARK: - Resolution (escape-rejecting)
 
     func absoluteURL(for relPath: String) -> URL? {
+        // The storage contract is container-relative paths only: an absolute input like
+        // "/etc/passwd" would otherwise silently resolve as a child of the root.
+        guard !relPath.hasPrefix("/") else { return nil }
         let candidate = root.appending(path: relPath).standardizedFileURL
         return isContained(candidate) ? candidate : nil
     }

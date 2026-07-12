@@ -21,6 +21,10 @@ nonisolated struct ProjectRepository: Sendable {
         }
     }
 
+    func fetch(id: String) async throws -> Project? {
+        try await dbWriter.read { db in try Project.fetchOne(db, key: id) }
+    }
+
     func fetchProjectList() async throws -> [ProjectListRow] {
         try await dbWriter.read { db in
             try ProjectListRow.fetchAll(db, sql: Self.listSQL)

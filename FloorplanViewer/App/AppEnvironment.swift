@@ -14,17 +14,41 @@ final class AppEnvironment {
     let packageRepository: PackageRepository
     let markerRepository: MarkerRepository
     let appStateRepository: AppStateRepository
+    /// One shared monitor: the coordinator and the UI's connectivity state are two sinks on it.
+    let pathMonitor: any PathMonitoring
+    let coordinator: PackagePreparationCoordinator
+    let launchRecovery: LaunchRecovery
 
-    /// Pure DI initializer — tests inject an in-memory DB, a `TestClock`, and a scratch storage.
-    init(database: AppDatabase, clock: any AppClock, storage: PackageStorage) {
+    /// Pure DI initializer — tests inject an in-memory DB, a `TestClock`, scratch storage, and a
+    /// stub monitor.
+    init(
+        database: AppDatabase,
+        clock: any AppClock,
+        storage: PackageStorage,
+        pathMonitor: any PathMonitoring = NWPathMonitorAdapter()
+    ) {
         self.database = database
         self.clock = clock
         self.storage = storage
+        self.pathMonitor = pathMonitor
         let writer = database.writer
-        projectRepository = ProjectRepository(dbWriter: writer)
-        packageRepository = PackageRepository(dbWriter: writer, clock: clock)
+        let projectRepository = ProjectRepository(dbWriter: writer)
+        let packageRepository = PackageRepository(dbWriter: writer, clock: clock)
+        self.projectRepository = projectRepository
+        self.packageRepository = packageRepository
         markerRepository = MarkerRepository(dbWriter: writer, clock: clock)
         appStateRepository = AppStateRepository(dbWriter: writer, clock: clock)
+        launchRecovery = LaunchRecovery(packages: packageRepository, storage: storage)
+        coordinator = PackagePreparationCoordinator(
+            packages: packageRepository,
+            projects: projectRepository,
+            storage: storage,
+            downloader: URLSessionPackageDownloader(),
+            extractor: SWCompressionArchiveExtractor(),
+            validator: DZIPackageValidator(),
+            pathMonitor: pathMonitor,
+            clock: clock
+        )
     }
 
     /// Builds the live composition root, opening the store off the main actor.
@@ -41,7 +65,18 @@ final class AppEnvironment {
             Log.app.error("Store open failed: \(String(describing: error), privacy: .public)")
             throw AppLaunchError.databaseOpenFailed(underlying: String(describing: error))
         }
-        return await AppEnvironment(database: store.database, clock: SystemClock(), storage: store.storage)
+        let environment = await AppEnvironment(
+            database: store.database, clock: SystemClock(), storage: store.storage
+        )
+        // Recovery runs before the launcher flips `.ready`: no UI — and no preparation — ever
+        // observes an unreconciled store.
+        do {
+            try await environment.launchRecovery.recover()
+        } catch {
+            Log.app.error("Launch recovery failed: \(String(describing: error), privacy: .public)")
+            throw AppLaunchError.recoveryFailed(underlying: String(describing: error))
+        }
+        return environment
     }
 
     /// Non-throwing wrapper the launcher awaits: resolves the root into a `Result`.

@@ -1,27 +1,33 @@
 import SwiftUI
 
-/// Placeholder root shell. Phase 5 replaces this with the `NavigationSplitView` project list;
-/// for now it proves the seeded projects load through the repository (no GRDB in the view).
+/// Interim root: live project list driven by observation, engine started from `.task`.
+/// Phase 5 replaces this with the full `NavigationSplitView` + styled rows; the plumbing
+/// (observation, coordinator start) carries over unchanged.
 struct RootView: View {
     let environment: AppEnvironment
 
-    @State private var projects: [Project] = []
+    @State private var rows: [ProjectListRow] = []
     #if DEBUG
         @State private var showSpike = false
     #endif
 
     var body: some View {
         NavigationStack {
-            List(projects) { project in
-                LabeledContent(project.name, value: project.id)
+            List(rows) { row in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(row.name)
+                    Text(statusLine(for: row))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .overlay {
-                if projects.isEmpty {
+                if rows.isEmpty {
                     ContentUnavailableView("No Projects", systemImage: "square.stack.3d.up")
                 }
             }
             .navigationTitle("Floorplans")
-            .task { await load() }
+            .task { await start() }
             #if DEBUG
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -35,11 +41,25 @@ struct RootView: View {
         }
     }
 
-    private func load() async {
+    private func statusLine(for row: ProjectListRow) -> String {
+        var line = row.state.rawValue
+        if let progress = row.downloadProgress, row.state == .downloading {
+            line += " \(Int(progress * 100))%"
+        }
+        if let reason = row.failureReason {
+            line += " (\(reason.rawValue))"
+        }
+        return line
+    }
+
+    private func start() async {
+        await environment.coordinator.start()
         do {
-            projects = try await environment.projectRepository.fetchAll()
+            for try await snapshot in environment.projectRepository.observeProjectList() {
+                rows = snapshot
+            }
         } catch {
-            Log.app.error("Loading projects failed: \(String(describing: error), privacy: .public)")
+            Log.app.error("Project list observation failed: \(String(describing: error), privacy: .public)")
         }
     }
 }

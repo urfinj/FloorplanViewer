@@ -14,6 +14,12 @@ nonisolated struct PackageRepository: Sendable {
         try await dbWriter.read { db in try PackageRecord.fetchOne(db, key: projectID) }
     }
 
+    func fetchAll() async throws -> [PackageRecord] {
+        try await dbWriter.read { db in
+            try PackageRecord.order(PackageRecord.Columns.projectID).fetchAll(db)
+        }
+    }
+
     func observePackage(projectID: String) -> AsyncValueObservation<PackageRecord?> {
         ValueObservation
             .tracking { db in try PackageRecord.fetchOne(db, key: projectID) }
@@ -37,21 +43,6 @@ nonisolated struct PackageRepository: Sendable {
                 width: width, height: height, tileSize: tileSize, overlap: overlap,
                 format: format, maxFolderLevel: maxLevel
             )
-        }
-    }
-
-    /// Project ids eligible for a preparation drain now: unprepared/queued, or failed-and-due.
-    func drainCandidates(now: Double) async throws -> [String] {
-        try await dbWriter.read { db in
-            try String.fetchAll(db, sql: """
-            SELECT project_id FROM package
-            WHERE state_raw IN (?, ?)
-               OR (state_raw = ? AND (next_retry_at IS NULL OR next_retry_at <= ?))
-            ORDER BY project_id ASC
-            """, arguments: [
-                PackageState.notPrepared.rawValue, PackageState.queued.rawValue,
-                PackageState.failed.rawValue, now
-            ])
         }
     }
 
@@ -125,7 +116,11 @@ nonisolated struct PackageRepository: Sendable {
     }
 
     func markFailed(
-        projectID: String, reason: PackageFailureReason, retryCount: Int, nextRetryAt: Double?
+        projectID: String,
+        reason: PackageFailureReason,
+        retryCount: Int,
+        nextRetryAt: Double?,
+        clearingArchive: Bool = false
     ) async throws {
         try await mutate(projectID) { rec, now in
             rec.stateRaw = PackageState.failed.rawValue
@@ -133,6 +128,18 @@ nonisolated struct PackageRepository: Sendable {
             rec.retryCount = retryCount
             rec.nextRetryAt = nextRetryAt
             rec.downloadProgress = nil
+            if clearingArchive {
+                rec.archiveRelPath = nil
+            }
+            rec.updatedAt = now
+        }
+    }
+
+    /// Makes a failed row immediately due (keeps `retry_count`/backoff history). Used by the
+    /// connectivity trigger and launch recovery ("retry on launch").
+    func clearNextRetry(projectID: String) async throws {
+        try await mutate(projectID) { rec, now in
+            rec.nextRetryAt = nil
             rec.updatedAt = now
         }
     }

@@ -108,18 +108,13 @@ struct PackageRepositoryTests {
         #expect(try await repo.readyPackage(projectID: "project-1") == nil)
     }
 
-    @Test func drainCandidatesSelectsUnpreparedAndDueFailedNotReadyNotUndue() async throws {
-        let (repo, _, _) = try makeRepo(now: 1000)
-        // project-1: notPrepared (seed) -> due. project-2: ready -> excluded.
-        try await repo.markReady(projectID: "project-2", layout: sampleLayout("project-2"))
-        // project-3: failed, due at 500 -> due.
-        try await repo.markFailed(projectID: "project-3", reason: .network, retryCount: 1, nextRetryAt: 500)
-        let due = try await repo.drainCandidates(now: 1000)
-        #expect(due.contains("project-1"))
-        #expect(!due.contains("project-2"))
-        #expect(due.contains("project-3"))
-        // A failed row scheduled in the future is not yet due.
-        try await repo.markFailed(projectID: "project-1", reason: .network, retryCount: 1, nextRetryAt: 5000)
-        #expect(try await repo.drainCandidates(now: 1000).contains("project-1") == false)
+    @Test func clearNextRetryMakesRowDueKeepingHistory() async throws {
+        let (repo, _, _) = try makeRepo()
+        try await repo.markFailed(projectID: "project-1", reason: .network, retryCount: 3, nextRetryAt: 9999)
+        try await repo.clearNextRetry(projectID: "project-1")
+        let rec = try await repo.fetch(projectID: "project-1")
+        #expect(rec?.nextRetryAt == nil)
+        #expect(rec?.retryCount == 3)
+        #expect(rec?.state == .failed)
     }
 }
