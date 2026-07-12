@@ -4,6 +4,10 @@ Native SwiftUI/iOS viewer for automatically downloaded, offline DZI floorplans. 
 three project packages without a download button, renders only visible tiles with `CATiledLayer`,
 and stores package state and normalized markers in GRDB.
 
+## Demo
+
+[![Watch the FloorplanViewer demo](https://i.ytimg.com/vi/OCCyzWOx-SI/hq2.jpg)](https://youtube.com/shorts/OCCyzWOx-SI?feature=share)
+
 ## Run
 
 Requirements: Xcode 26, an iOS 17+ simulator, XcodeGen 2.45+, SwiftFormat 0.62+, SwiftLint 0.65+,
