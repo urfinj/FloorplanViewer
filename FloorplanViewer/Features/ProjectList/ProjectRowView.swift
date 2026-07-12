@@ -44,9 +44,9 @@ struct ProjectRowView: View {
         case let .retrying(_, progress?):
             progressLine(progress)
         case .preparing, .extracting, .retrying:
-            Text(statusCaption)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            // The badge itself carries the transient status text (with live percent when
+            // downloading) — no caption needed, so the row doesn't say it twice.
+            EmptyView()
         case .ready:
             readyCaption
                 .font(.caption)
@@ -73,28 +73,26 @@ struct ProjectRowView: View {
             .progressViewStyle(.linear)
     }
 
-    /// "Prepared 2 hours ago · 2 markers" — the timestamp only once a success has been stamped.
+    /// "Updated 2 hours ago · 2 markers" — the timestamp only once a success has been stamped.
     private var readyCaption: Text {
-        if let preparedAgo {
-            Text("Prepared \(preparedAgo) · ^[\(row.markerCount) marker](inflect: true)")
+        if let updatedAgo {
+            Text("Updated \(updatedAgo) · ^[\(row.markerCount) marker](inflect: true)")
         } else {
             Text("^[\(row.markerCount) marker](inflect: true)")
         }
     }
 
-    private var preparedAgo: String? {
+    private var updatedAgo: String? {
         guard let lastSuccessAt = row.lastSuccessAt else { return nil }
         let date = Date(timeIntervalSince1970: lastSuccessAt)
-        guard date <= Date() else { return nil }
-        return date.formatted(.relative(presentation: .named))
-    }
-
-    private var statusCaption: String {
-        switch displayState {
-        case .extracting: "Extracting…"
-        case let .retrying(attempt, _): "Retrying (attempt \(attempt))…"
-        default: "Preparing…"
+        let now = Date()
+        guard date <= now else { return nil }
+        // Floor sub-minute ages to a stable phrase — otherwise a relative style ticks every
+        // second ("3 seconds ago", "4 seconds ago", …). Minute+ ages already read as whole minutes.
+        if now.timeIntervalSince(date) < 60 {
+            return "just now"
         }
+        return date.formatted(.relative(presentation: .named))
     }
 
     private var rowAccessibilityLabel: Text {

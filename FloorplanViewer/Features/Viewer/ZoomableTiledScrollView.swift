@@ -46,9 +46,9 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             guard let scroll, let coordinator else { return }
             coordinator.zoom(by: factor, on: scroll)
         }
-        controller.zoomToFit = { [weak scroll] in
-            guard let scroll else { return }
-            scroll.setZoomScale(scroll.minimumZoomScale, animated: true)
+        controller.zoomToFit = { [weak scroll, weak coordinator = context.coordinator] in
+            guard let scroll, let coordinator else { return }
+            coordinator.zoomToFit(on: scroll)
         }
         return scroll
     }
@@ -137,30 +137,78 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             onTap(recognizer.location(in: content))
         }
 
-        /// Discrete zoom that keeps the image point under the viewport center pinned, animated as
-        /// one ease-in-out. The screen-space center is `width / 2` — NOT `bounds.midX`, because a
-        /// scroll view's `bounds.origin` IS `contentOffset`, and `toImage` adds the offset itself
-        /// (using `midX` double-counts it and drifts the view sideways on every press).
+        /// Discrete zoom that keeps the image point under the viewport center pinned. The
+        /// screen-space center is `width / 2` — NOT `bounds.midX`, because a scroll view's
+        /// `bounds.origin` IS `contentOffset`, and `toImage` adds the offset itself (using `midX`
+        /// double-counts it and drifts the view sideways on every press).
         func zoom(by factor: CGFloat, on scrollView: UIScrollView) {
             let current = scrollView.zoomScale
             guard current > 0 else { return }
-            let target = min(max(current * factor, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
-            guard abs(target - current) > 0.0001 else { return }
             let viewportCenter = CGPoint(x: scrollView.bounds.width / 2, y: scrollView.bounds.height / 2)
             let anchor = ViewportMath.toImage(
                 screenPoint: viewportCenter, zoomScale: current, contentOffset: scrollView.contentOffset
             )
-            UIView.animate(
-                withDuration: 0.28,
-                delay: 0,
-                options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
-            ) {
-                scrollView.zoomScale = target // fires scrollViewDidZoom → recenter() refreshes insets
-                let desired = CGPoint(
-                    x: anchor.x * target - viewportCenter.x,
-                    y: anchor.y * target - viewportCenter.y
+            animateZoom(toScale: current * factor, anchorImagePoint: anchor, on: scrollView)
+        }
+
+        func zoomToFit(on scrollView: UIScrollView) {
+            guard let content else { return }
+            animateZoom(
+                toScale: scrollView.minimumZoomScale,
+                anchorImagePoint: CGPoint(x: content.bounds.midX, y: content.bounds.midY),
+                on: scrollView
+            )
+        }
+
+        @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
+            guard let content, let scrollView = content.superview as? UIScrollView else { return }
+            let fit = scrollView.minimumZoomScale
+            if scrollView.zoomScale > fit * 1.01 {
+                // Anchor is irrelevant at fit: the offset clamp centers small content.
+                animateZoom(
+                    toScale: fit,
+                    anchorImagePoint: CGPoint(x: content.bounds.midX, y: content.bounds.midY),
+                    on: scrollView
                 )
-                scrollView.contentOffset = Self.clampedOffset(desired, in: scrollView)
+            } else {
+                animateZoom(
+                    toScale: min(1, scrollView.maximumZoomScale),
+                    anchorImagePoint: recognizer.location(in: content),
+                    on: scrollView
+                )
+            }
+        }
+
+        // MARK: - Animated zoom primitive
+
+        private static let zoomAnimationDuration: TimeInterval = 0.3
+
+        /// The one animated-zoom path (buttons and double-tap): brings `anchor` (image space) to
+        /// the viewport center at the target scale. The UIKit property sets fire the delegate
+        /// pushes synchronously, and both run inside `withAnimation` with the same ease-in-out
+        /// curve and duration as the layer animation — so the SwiftUI marker overlay glides with
+        /// the canvas instead of jumping to final positions while the layers catch up.
+        private func animateZoom(
+            toScale target: CGFloat,
+            anchorImagePoint anchor: CGPoint,
+            on scrollView: UIScrollView
+        ) {
+            let clamped = min(max(target, scrollView.minimumZoomScale), scrollView.maximumZoomScale)
+            guard abs(clamped - scrollView.zoomScale) > 0.0001 else { return }
+            let viewportCenter = CGPoint(x: scrollView.bounds.width / 2, y: scrollView.bounds.height / 2)
+            withAnimation(.easeInOut(duration: Self.zoomAnimationDuration)) {
+                UIView.animate(
+                    withDuration: Self.zoomAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]
+                ) {
+                    scrollView.zoomScale = clamped // fires scrollViewDidZoom → recenter() refreshes insets
+                    let desired = CGPoint(
+                        x: anchor.x * clamped - viewportCenter.x,
+                        y: anchor.y * clamped - viewportCenter.y
+                    )
+                    scrollView.contentOffset = Self.clampedOffset(desired, in: scrollView)
+                }
             }
         }
 
@@ -176,23 +224,6 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
                 x: min(max(proposed.x, minX), maxX),
                 y: min(max(proposed.y, minY), maxY)
             )
-        }
-
-        @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
-            guard let content, let scrollView = content.superview as? UIScrollView else { return }
-            let fit = scrollView.minimumZoomScale
-            if scrollView.zoomScale > fit * 1.01 {
-                scrollView.setZoomScale(fit, animated: true)
-            } else {
-                let target = min(1, scrollView.maximumZoomScale)
-                let point = recognizer.location(in: content)
-                let size = CGSize(
-                    width: scrollView.bounds.width / target,
-                    height: scrollView.bounds.height / target
-                )
-                let origin = CGPoint(x: point.x - size.width / 2, y: point.y - size.height / 2)
-                scrollView.zoom(to: CGRect(origin: origin, size: size), animated: true)
-            }
         }
 
         /// Center the content while it is smaller than the viewport. `contentSize` is already

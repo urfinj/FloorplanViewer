@@ -27,7 +27,13 @@ final class ViewerViewModel {
 
     private(set) var record: PackageRecord?
     private(set) var content: ViewerContent?
+    /// What the overlay renders: the last observed snapshot merged with any optimistic pins.
     private(set) var markers: [Marker] = []
+    /// Last confirmed snapshot from the marker observation.
+    private var persistedMarkers: [Marker] = []
+    /// Pins shown immediately on placement, before the write round-trips back through observation —
+    /// dropped once a snapshot proves them persisted. Kills the tap-to-appear latency.
+    private var pendingInserts: [Marker] = []
     private(set) var selectedMarkerID: String?
     let viewport = ViewportState()
     /// Command bridge for the discrete zoom buttons; installed by the scroll-view representable.
@@ -101,8 +107,12 @@ final class ViewerViewModel {
         while !Task.isCancelled {
             do {
                 for try await snapshot in markerRepository.observeMarkers(projectID: projectID) {
-                    markers = snapshot
-                    if let selected = selectedMarkerID, !snapshot.contains(where: { $0.id == selected }) {
+                    persistedMarkers = snapshot
+                    // Any optimistic pin the snapshot now contains is confirmed — stop tracking it.
+                    let persistedIDs = Set(snapshot.map(\.id))
+                    pendingInserts.removeAll { persistedIDs.contains($0.id) }
+                    recomputeMarkers()
+                    if let selected = selectedMarkerID, !markers.contains(where: { $0.id == selected }) {
                         selectedMarkerID = nil
                     }
                 }
@@ -258,15 +268,41 @@ final class ViewerViewModel {
     }
 
     private func placeMarker(normalizedX: Double, normalizedY: Double) {
-        Task { [markerRepository, projectID] in
+        let marker = markerRepository.makeMarker(
+            projectID: projectID, normalizedX: normalizedX, normalizedY: normalizedY
+        )
+        // Optimistic: the pin is on screen this frame; the write + observation confirm it a beat
+        // later and simply replace the optimistic copy with the identical persisted row.
+        pendingInserts.append(marker)
+        recomputeMarkers()
+        Task { [weak self, markerRepository] in
             do {
-                try await markerRepository.insert(
-                    projectID: projectID, normalizedX: normalizedX, normalizedY: normalizedY
-                )
+                try await markerRepository.insert(marker)
             } catch {
                 Log.viewer.error("Placing marker failed: \(String(describing: error), privacy: .public)")
+                // Persisting failed — take the optimistic pin back down.
+                self?.pendingInserts.removeAll { $0.id == marker.id }
+                self?.recomputeMarkers()
             }
         }
+    }
+
+    /// Merges the confirmed snapshot with still-pending optimistic pins, keyed by id (pending never
+    /// duplicates a persisted row) and ordered by creation time — the overlay's stable pin numbers.
+    private func recomputeMarkers() {
+        guard !pendingInserts.isEmpty else {
+            markers = persistedMarkers
+            return
+        }
+        var byID: [String: Marker] = [:]
+        byID.reserveCapacity(persistedMarkers.count + pendingInserts.count)
+        for marker in persistedMarkers {
+            byID[marker.id] = marker
+        }
+        for marker in pendingInserts {
+            byID[marker.id] = marker
+        }
+        markers = byID.values.sorted { $0.createdAt < $1.createdAt }
     }
 
     // MARK: - Zoom
@@ -277,6 +313,11 @@ final class ViewerViewModel {
 
     func zoomOut() {
         viewportController.zoomOut()
+    }
+
+    /// Animate straight back to the fitted (whole-plan) scale — the one-tap overview reset.
+    func resetZoom() {
+        viewportController.fit()
     }
 
     func deleteSelectedMarker() {

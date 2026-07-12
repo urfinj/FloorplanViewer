@@ -25,6 +25,18 @@ struct RootView: View {
     }
 
     var body: some View {
+        #if DEBUG
+            if DebugRowStateGallery.isRequested {
+                DebugRowStateGallery(resolvePreview: previewURL(for:))
+            } else {
+                navigationBody
+            }
+        #else
+            navigationBody
+        #endif
+    }
+
+    private var navigationBody: some View {
         NavigationSplitView(preferredCompactColumn: $preferredCompactColumn) {
             sidebar
         } detail: {
@@ -82,6 +94,8 @@ struct RootView: View {
                 }
             }
         }
+        // Debug / Demo gear + sheet (removable feature — see `DebugSettingsGear`).
+        .debugSettingsGear(controller: environment.debugController)
     }
 
     /// Container-relative → absolute resolution happens here so the row stays storage-agnostic.

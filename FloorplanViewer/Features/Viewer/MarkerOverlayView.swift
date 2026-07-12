@@ -12,7 +12,12 @@ struct MarkerOverlayView: View {
     let imageSize: CGSize
     let onActivate: (String) -> Void
 
-    private static let cullMargin: CGFloat = 50
+    /// Culling keeps one full extra viewport alive on every side (not a thin strip): during an
+    /// animated zoom step a pin's start or end position can sit well outside the visible bounds,
+    /// and culling it there would make it pop in/out instead of gliding with the canvas.
+    private var cullMargin: CGFloat {
+        max(viewport.boundsSize.width, viewport.boundsSize.height)
+    }
 
     var body: some View {
         ZStack(alignment: .topLeading) {
@@ -48,8 +53,8 @@ struct MarkerOverlayView: View {
         let screen = ViewportMath.toScreen(
             imagePoint: image, zoomScale: viewport.zoomScale, contentOffset: viewport.contentOffset
         )
-        guard screen.x > -Self.cullMargin, screen.x < viewport.boundsSize.width + Self.cullMargin,
-              screen.y > -Self.cullMargin, screen.y < viewport.boundsSize.height + Self.cullMargin
+        guard screen.x > -cullMargin, screen.x < viewport.boundsSize.width + cullMargin,
+              screen.y > -cullMargin, screen.y < viewport.boundsSize.height + cullMargin
         else { return nil }
         return screen
     }

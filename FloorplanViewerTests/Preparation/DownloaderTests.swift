@@ -54,6 +54,23 @@ struct DownloaderTests {
         #expect(!FileManager.default.fileExists(atPath: destination.path))
     }
 
+    @Test func pacedDownloadStaysByteIdentical() async throws {
+        // The "Slow downloads" pacing hook only sleeps between chunks — the bytes must be unchanged.
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let source = dir.appending(path: "fixture.bin")
+        let payload = Data((0 ..< 200_000).map { UInt8($0 % 251) })
+        try payload.write(to: source)
+        let destination = dir.appending(path: "out/downloaded.bin")
+
+        // A tiny real pause per chunk so the test stays fast while exercising the seam.
+        let pause: @Sendable () async throws -> Void = { try await Task.sleep(for: .milliseconds(1)) }
+        try await URLSessionPackageDownloader(interChunkPause: pause)
+            .download(from: source, to: destination) { _ in }
+
+        #expect(try Data(contentsOf: destination) == payload)
+    }
+
     @Test func emptySourceIsRejectedAsCorrupt() async throws {
         let dir = try makeTempDir()
         defer { try? FileManager.default.removeItem(at: dir) }

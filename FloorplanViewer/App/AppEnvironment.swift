@@ -20,6 +20,9 @@ final class AppEnvironment {
     let launchRecovery: LaunchRecovery
     /// Shared live-reachability for display mapping (second sink on `pathMonitor`).
     let connectivity: ConnectivityState
+    /// Debug / Demo facade for the settings sheet. Every seam it drives defaults inert, so
+    /// production behaviour is unchanged until a toggle is flipped (see plan `09`).
+    let debugController: DebugController
 
     /// Pure DI initializer — tests inject an in-memory DB, a `TestClock`, scratch storage, and a
     /// stub monitor.
@@ -32,26 +35,37 @@ final class AppEnvironment {
         self.database = database
         self.clock = clock
         self.storage = storage
-        self.pathMonitor = pathMonitor
+        // Debug / Demo surface — assembled entirely by `DebugSupport`. To remove the feature:
+        // delete `Core/Debug/` + `Features/Settings/`, then revert these `debug.*` references and
+        // the `.debugSettingsGear` line in `RootView`. Nothing debug-specific reaches the engine —
+        // the downloader gets only a generic `interChunkPause` closure, the rest is the wrapped
+        // path monitor (force-offline override) both the engine and UI already share.
+        let debug = DebugSupport(basePathMonitor: pathMonitor)
+        self.pathMonitor = debug.pathMonitor
         let writer = database.writer
         let projectRepository = ProjectRepository(dbWriter: writer)
         let packageRepository = PackageRepository(dbWriter: writer, clock: clock)
         self.projectRepository = projectRepository
         self.packageRepository = packageRepository
-        markerRepository = MarkerRepository(dbWriter: writer, clock: clock)
-        appStateRepository = AppStateRepository(dbWriter: writer, clock: clock)
+        let markerRepository = MarkerRepository(dbWriter: writer, clock: clock)
+        let appStateRepository = AppStateRepository(dbWriter: writer, clock: clock)
+        self.markerRepository = markerRepository
+        self.appStateRepository = appStateRepository
         launchRecovery = LaunchRecovery(packages: packageRepository, storage: storage)
-        coordinator = PackagePreparationCoordinator(
+        let coordinator = PackagePreparationCoordinator(
             packages: packageRepository,
             projects: projectRepository,
             storage: storage,
-            downloader: URLSessionPackageDownloader(),
+            downloader: URLSessionPackageDownloader(interChunkPause: debug.interChunkPause),
             extractor: SWCompressionArchiveExtractor(),
             validator: DZIPackageValidator(),
-            pathMonitor: pathMonitor,
+            pathMonitor: debug.pathMonitor,
             clock: clock
         )
-        connectivity = ConnectivityState(monitor: pathMonitor)
+        self.coordinator = coordinator
+        let connectivity = ConnectivityState(monitor: debug.pathMonitor)
+        self.connectivity = connectivity
+        debugController = debug.makeController(connectivity: connectivity)
     }
 
     /// One viewer model per selected project (`.id(projectID)` gives per-project identity).

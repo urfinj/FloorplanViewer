@@ -86,17 +86,20 @@ struct FloorplanViewerScreen: View {
 
     // MARK: - Header + canvas overlays
 
-    /// Read-only pin counter in the navigation bar's trailing slot. Deliberately a plain label in
-    /// neutral colors — not a button, and it shouldn't look like one.
+    /// Nav-bar pin counter that doubles as the reset-zoom control: it shows how many markers are
+    /// placed and, on tap, animates the plan back to its fitted overview. A native toolbar button
+    /// (no extra capsule fill, so it doesn't double up with the toolbar's glass background on
+    /// iOS 26).
     private var markerCountBadge: some View {
-        Label("\(model.markers.count)", systemImage: "mappin.and.ellipse")
-            .labelStyle(.titleAndIcon)
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(.quaternary, in: .capsule)
-            .accessibilityLabel("^[\(model.markers.count) marker](inflect: true) placed")
+        Button {
+            model.resetZoom()
+        } label: {
+            Label("\(model.markers.count)", systemImage: "mappin.and.ellipse")
+                .labelStyle(.titleAndIcon)
+                .font(.subheadline.weight(.semibold))
+        }
+        .accessibilityLabel("^[\(model.markers.count) marker](inflect: true) placed")
+        .accessibilityHint("Resets zoom to fit the whole plan")
     }
 
     /// Subtle crosshair marking exactly where "Drop Pin at Center" lands. Overlaid on the scroll
@@ -146,25 +149,18 @@ struct FloorplanViewerScreen: View {
         .padding(.bottom, 12)
     }
 
-    /// Zoom ±, visually icon-only — the text stays for VoiceOver. Both icons get the same fixed
-    /// frame: the bare −/+ glyphs differ in intrinsic size, and the circular border shape would
-    /// otherwise produce visibly different button diameters.
+    /// Zoom in / out, visually icon-only — the text stays for VoiceOver. Both icons get the same
+    /// fixed frame: the bare −/+ glyphs differ in intrinsic size, and the circular border shape
+    /// would otherwise produce visibly different button diameters. (Reset-to-fit lives on the
+    /// nav-bar pin badge; double-tap resets too.)
     private var zoomCluster: some View {
         VStack(spacing: 12) {
-            Button {
+            zoomButton("Zoom In", systemImage: "plus", enabled: model.viewport.canZoomIn) {
                 model.zoomIn()
-            } label: {
-                Label("Zoom In", systemImage: "plus")
-                    .frame(width: 24, height: 24)
             }
-            .disabled(!model.viewport.canZoomIn)
-            Button {
+            zoomButton("Zoom Out", systemImage: "minus", enabled: model.viewport.canZoomOut) {
                 model.zoomOut()
-            } label: {
-                Label("Zoom Out", systemImage: "minus")
-                    .frame(width: 24, height: 24)
             }
-            .disabled(!model.viewport.canZoomOut)
         }
         .buttonStyle(.bordered)
         .labelStyle(.iconOnly)
@@ -172,6 +168,19 @@ struct FloorplanViewerScreen: View {
         .buttonBorderShape(.circle)
         .controlSize(.large)
         .padding(16)
+    }
+
+    private func zoomButton(
+        _ title: LocalizedStringKey,
+        systemImage: String,
+        enabled: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .frame(width: 28, height: 28)
+        }
+        .disabled(!enabled)
     }
 
     // MARK: - Non-ready states

@@ -20,11 +20,19 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
     }()
 
     var session: URLSession
+    /// Optional pacing hook invoked after each chunk write. Injected only by the Debug / Demo
+    /// "Slow downloads" toggle; `nil` in the production defaults and every test → the byte path is
+    /// unchanged. The downloader knows nothing about the debug module — just a generic closure.
+    let interChunkPause: (@Sendable () async throws -> Void)?
     /// Buffered write size — byte-wise `FileHandle` writes would be pathological.
     private static let chunkSize = 64 * 1024
 
-    init(session: URLSession = Self.liveSession) {
+    init(
+        session: URLSession = Self.liveSession,
+        interChunkPause: (@Sendable () async throws -> Void)? = nil
+    ) {
         self.session = session
+        self.interChunkPause = interChunkPause
     }
 
     @concurrent
@@ -86,6 +94,11 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
                 buffer.removeAll(keepingCapacity: true)
                 if expected > 0 {
                     await progress(Double(received) / Double(expected))
+                }
+                if let interChunkPause {
+                    // Optional pacing (Debug / Demo "Slow downloads"). Rethrows `CancellationError`
+                    // (never `try?`) so a cancelled transfer still tears down cleanly.
+                    try await interChunkPause()
                 }
             }
         }

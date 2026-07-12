@@ -6,16 +6,27 @@ nonisolated struct MarkerRepository: Sendable {
     let dbWriter: any DatabaseWriter
     let clock: any AppClock
 
-    @discardableResult
-    func insert(projectID: String, normalizedX: Double, normalizedY: Double) async throws -> Marker {
-        let marker = Marker(
+    /// Builds a marker with a fresh id + timestamp, coordinates clamped to the DB's `0…1` CHECK.
+    /// Split out from `insert` so the UI can render a pin optimistically and then persist the very
+    /// same value (same id/coords/timestamp) without a placement round-trip.
+    func makeMarker(projectID: String, normalizedX: Double, normalizedY: Double) -> Marker {
+        Marker(
             id: UUID().uuidString,
             projectID: projectID,
             normalizedX: min(max(normalizedX, 0), 1),
             normalizedY: min(max(normalizedY, 0), 1),
             createdAt: clock.now.timeIntervalSince1970
         )
+    }
+
+    func insert(_ marker: Marker) async throws {
         try await dbWriter.write { db in try marker.insert(db) }
+    }
+
+    @discardableResult
+    func insert(projectID: String, normalizedX: Double, normalizedY: Double) async throws -> Marker {
+        let marker = makeMarker(projectID: projectID, normalizedX: normalizedX, normalizedY: normalizedY)
+        try await insert(marker)
         return marker
     }
 
