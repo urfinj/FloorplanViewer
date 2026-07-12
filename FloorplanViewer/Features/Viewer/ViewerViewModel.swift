@@ -75,7 +75,9 @@ final class ViewerViewModel {
                         await openForViewing()
                         if content == nil {
                             Log.viewer
-                                .warning("Viewer open yielded no content for \(projectID, privacy: .public); retrying")
+                                .warning(
+                                    "Viewer open yielded no content for \(self.projectID, privacy: .public); retrying"
+                                )
                             do {
                                 try await Task.sleep(for: .seconds(1))
                             } catch {
@@ -112,11 +114,11 @@ final class ViewerViewModel {
         guard !isOpening else { return }
         isOpening = true
         defer { isOpening = false }
-        Log.viewer.notice("Viewer entry: awaiting verify-or-repair for \(projectID, privacy: .public)")
+        Log.viewer.notice("Viewer entry: awaiting verify-or-repair for \(self.projectID, privacy: .public)")
         do {
             let package = try await preparation.packageForViewing(projectID: projectID)
             Log.viewer.notice("""
-            Viewer entry settled for \(projectID, privacy: .public): \
+            Viewer entry settled for \(self.projectID, privacy: .public): \
             \(package == nil ? "no package (demoted or not ready)" : "validated package", privacy: .public)
             """)
             guard let package, let tilesURL = storage.absoluteURL(for: package.tilesRelDir) else { return }

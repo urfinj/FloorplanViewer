@@ -10,9 +10,10 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
     let provider: TileProvider
     let viewport: ViewportState
     let onTap: (CGPoint) -> Void
+    @Environment(\.displayScale) private var displayScale
 
     func makeUIView(context: Context) -> LayoutCallbackScrollView {
-        let content = TilingContentView(pyramid: pyramid, provider: provider)
+        let content = TilingContentView(pyramid: pyramid, provider: provider, displayScale: displayScale)
         let scroll = LayoutCallbackScrollView()
         scroll.addSubview(content)
         scroll.contentSize = pyramid.fullSize
@@ -88,14 +89,34 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
             // Only re-fit when the user was already fitted (first layout, rotation at fit).
             // Never clamp `zoomScale < fit` here: layout runs during pinch, and the bounce
             // below minimum is UIScrollView's own gesture behavior — stomping it fights the pinch.
-            if wasAtFit {
+            if wasAtFit, lastFitScale != fit {
                 scrollView.zoomScale = fit
                 centerContent(scrollView)
             }
             lastFitScale = fit
             recenter(scrollView)
             push(scrollView)
+            #if DEBUG
+                applyDebugZoomIfRequested(scrollView)
+            #endif
         }
+
+        #if DEBUG
+            /// Diagnosis without gesture automation: `FLOORPLAN_DEBUG_ZOOM=<scale>` in the launch
+            /// environment zooms once after the first fitted layout, so a screenshot + the draw
+            /// logs show exactly which DZI level renders at that zoom.
+            private var debugZoomApplied = false
+            private func applyDebugZoomIfRequested(_ scrollView: UIScrollView) {
+                guard !debugZoomApplied,
+                      let raw = ProcessInfo.processInfo.environment["FLOORPLAN_DEBUG_ZOOM"],
+                      let requested = Double(raw)
+                else { return }
+                debugZoomApplied = true
+                let target = min(max(CGFloat(requested), scrollView.minimumZoomScale), scrollView.maximumZoomScale)
+                Log.viewer.notice("Debug zoom: applying \(target, format: .fixed(precision: 3))")
+                scrollView.setZoomScale(target, animated: false)
+            }
+        #endif
 
         @objc func handleTap(_ recognizer: UITapGestureRecognizer) {
             guard let content else { return }

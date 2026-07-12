@@ -8,6 +8,9 @@
 --enable wrapMultilineStatementBraces
 
 --self remove
+# os.Logger interpolations are escaping autoclosures: property references REQUIRE explicit
+# `self`, which the redundantSelf rule must not strip inside these logging calls.
+--selfrequired log,trace,debug,info,notice,warning,error,critical,fault
 --importgrouping testable-bottom
 --commas inline
 --trimwhitespace always
