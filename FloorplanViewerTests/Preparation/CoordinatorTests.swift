@@ -397,7 +397,7 @@ struct CoordinatorTests {
         await h.coordinator.stop()
     }
 
-    @Test func sessionCapStopsAutoRetriesButManualResets() async throws {
+    @Test func sessionCapStopsAutoRetriesAndExplicitTriggersResetIt() async throws {
         // Failing downloader, tiny real backoff so the auto-retry timer actually fires.
         let downloader = MockDownloader(script: [.failure(PreparationError(reason: .network))])
         let h = try makeHarness(
@@ -417,8 +417,12 @@ struct CoordinatorTests {
         try await Task.sleep(for: .milliseconds(150))
         #expect(downloader.calls == 2) // cap 2: no third automatic attempt
 
-        await h.coordinator.retryNow(projectID: "project-1") // manual retry resets the cap
+        await h.coordinator.projectSelected(projectID: "project-1") // selection resets the session cap
         #expect(await eventually { downloader.calls == 3 })
+        await h.coordinator.awaitQuiescence()
+
+        await h.coordinator.retryNow(projectID: "project-1") // manual retry also resets it
+        #expect(await eventually { downloader.calls == 4 })
         await h.coordinator.stop()
     }
 }

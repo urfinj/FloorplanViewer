@@ -30,8 +30,11 @@ final class ViewerViewModel {
     private(set) var markers: [Marker] = []
     private(set) var selectedMarkerID: String?
     let viewport = ViewportState()
-    /// Guards the handshake against re-entry while one is already running.
-    private var isOpening = false
+    /// Keeps verify-or-repair retries independent from the package observation stream. The
+    /// pipeline can demote a broken `ready` row while the handshake is suspended; observation
+    /// must remain free to consume that state change and replace the spinner with the real state.
+    private var openingTask: Task<Void, Never>?
+    private var openingGeneration = 0
 
     var displayState: PackageDisplayState {
         guard let record else { return .preparing(progress: nil) }
@@ -64,28 +67,16 @@ final class ViewerViewModel {
     // MARK: - Observation (each runs in its own `.task` on the screen)
 
     func observePackage() async {
+        defer {
+            cancelOpening()
+        }
         do {
             for try await snapshot in packages.observePackage(projectID: projectID) {
                 record = snapshot
                 if snapshot?.state == .ready {
-                    // Self-healing open: a stable ready row emits exactly one snapshot, so a
-                    // single lost race would otherwise spin forever. Retry until content exists,
-                    // the row leaves ready, or the screen's task is cancelled.
-                    while content == nil, record?.state == .ready, !Task.isCancelled {
-                        await openForViewing()
-                        if content == nil {
-                            Log.viewer
-                                .warning(
-                                    "Viewer open yielded no content for \(self.projectID, privacy: .public); retrying"
-                                )
-                            do {
-                                try await Task.sleep(for: .seconds(1))
-                            } catch {
-                                return // screen went away — cancellation must not be swallowed
-                            }
-                        }
-                    }
+                    startOpeningIfNeeded()
                 } else {
+                    cancelOpening()
                     content = nil // demoted / re-preparing: never render stale paths
                 }
             }
@@ -110,10 +101,42 @@ final class ViewerViewModel {
     /// The awaited viewer-entry handshake: verify-or-repair settles, then (and only then) the
     /// validated `ReadyPackage` becomes renderer content. A nil result means the package was
     /// demoted — the row observation will drive the state UI and re-trigger when ready again.
+    private func startOpeningIfNeeded() {
+        guard content == nil, openingTask == nil else { return }
+        openingGeneration &+= 1
+        let generation = openingGeneration
+        openingTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                // A cancelled older handshake must not clear the handle of a newer one.
+                if openingGeneration == generation {
+                    openingTask = nil
+                }
+            }
+            // A stable ready row emits only once, so retry transient nil/error results. This task
+            // does not own observation: if the pipeline demotes the row, the observer cancels us.
+            while content == nil, record?.state == .ready, !Task.isCancelled {
+                await openForViewing()
+                guard content == nil, record?.state == .ready, !Task.isCancelled else { return }
+                Log.viewer.warning(
+                    "Viewer open yielded no content for \(self.projectID, privacy: .public); retrying"
+                )
+                do {
+                    try await Task.sleep(for: .seconds(1))
+                } catch {
+                    return
+                }
+            }
+        }
+    }
+
+    private func cancelOpening() {
+        openingGeneration &+= 1
+        openingTask?.cancel()
+        openingTask = nil
+    }
+
     private func openForViewing() async {
-        guard !isOpening else { return }
-        isOpening = true
-        defer { isOpening = false }
         Log.viewer.notice("Viewer entry: awaiting verify-or-repair for \(self.projectID, privacy: .public)")
         do {
             let package = try await preparation.packageForViewing(projectID: projectID)
@@ -121,7 +144,9 @@ final class ViewerViewModel {
             Viewer entry settled for \(self.projectID, privacy: .public): \
             \(package == nil ? "no package (demoted or not ready)" : "validated package", privacy: .public)
             """)
-            guard let package, let tilesURL = storage.absoluteURL(for: package.tilesRelDir) else { return }
+            guard !Task.isCancelled, record?.state == .ready,
+                  let package, let tilesURL = storage.absoluteURL(for: package.tilesRelDir)
+            else { return }
             let descriptor = try DZIDescriptor(
                 width: package.width,
                 height: package.height,

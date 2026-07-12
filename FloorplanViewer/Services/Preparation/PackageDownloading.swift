@@ -8,6 +8,6 @@ nonisolated protocol PackageDownloading: Sendable {
     func download(
         from url: URL,
         to destination: URL,
-        progress: @escaping @Sendable (Double?) -> Void
+        progress: @escaping @Sendable (Double?) async -> Void
     ) async throws
 }

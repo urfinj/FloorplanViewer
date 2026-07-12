@@ -25,6 +25,20 @@ nonisolated struct ProjectRepository: Sendable {
         try await dbWriter.read { db in try Project.fetchOne(db, key: id) }
     }
 
+    /// Refreshes server-owned catalog fields on every launch. The v1 migration seeds first
+    /// install, but an app update may change an endpoint; existing databases must not retain a
+    /// stale URL forever. Stable IDs preserve package state, files, selection, and markers.
+    func synchronizeCatalog(_ specs: [PackageCatalog.Spec] = PackageCatalog.seed) async throws {
+        try await dbWriter.write { db in
+            for spec in specs {
+                try db.execute(
+                    sql: "UPDATE project SET name = ?, package_url = ? WHERE id = ?",
+                    arguments: [spec.name, spec.url, spec.id]
+                )
+            }
+        }
+    }
+
     func fetchProjectList() async throws -> [ProjectListRow] {
         try await dbWriter.read { db in
             try ProjectListRow.fetchAll(db, sql: Self.listSQL)

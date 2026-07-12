@@ -50,6 +50,18 @@ struct ProjectListModelTests {
         #expect(persisted)
     }
 
+    @Test func rapidSelectionChangesPersistAndPrepareTheLatestProject() async throws {
+        let (model, appState, spy) = try makeModel()
+        model.selectedProjectID = "project-2"
+        model.selectedProjectID = "project-3"
+
+        let latestWon = await eventually {
+            let stored = try? await appState.lastSelectedProjectID()
+            return stored == "project-3" && spy.prepared.last == "project-3"
+        }
+        #expect(latestWon)
+    }
+
     @Test func virginLaunchSelectsNothingSoTheListShowsFirst() async throws {
         let (model, _, spy) = try makeModel()
         // Nothing persisted → no auto-selection (assignment flow starts at the project list).

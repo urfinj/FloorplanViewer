@@ -1,8 +1,8 @@
 import Foundation
 
 /// Production validation: locate → parse → verify the tile pyramid — all **in staging, before
-/// promotion**. Probes both the top-left and the computed bottom-right full-resolution tiles, so
-/// a truncated copy can never be promoted; requires contiguous levels `0…M`.
+/// promotion**. Requires every expected, non-empty tile across contiguous levels `0…M`, so a
+/// sparse or truncated copy can never be promoted and later render as unexplained white holes.
 nonisolated struct DZIPackageValidator: PackageValidating {
     @concurrent
     func validate(extractedDir: URL) async throws -> ValidatedPackageLayout {
@@ -37,16 +37,19 @@ nonisolated struct DZIPackageValidator: PackageValidating {
             throw PreparationError(reason: .tilesMissing)
         }
 
-        // Probe the two full-resolution corners.
-        let (cols, rows) = pyramid.grid(atLevel: maxLevel)
-        let probes = [
-            pyramid.tileRelativePath(level: maxLevel, col: 0, row: 0),
-            pyramid.tileRelativePath(level: maxLevel, col: cols - 1, row: rows - 1)
-        ]
-        for probe in probes {
-            let url = layout.tilesDirectoryURL.appending(path: probe)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw PreparationError(reason: .tilesMissing)
+        // The sample packages contain fewer than 200 tiles, so a complete metadata scan here is
+        // cheap and happens only after extraction. Runtime readiness checks stay corner-probed.
+        for level in 0 ... maxLevel {
+            let (cols, rows) = pyramid.grid(atLevel: level)
+            for row in 0 ..< rows {
+                for col in 0 ..< cols {
+                    try Task.checkCancellation()
+                    let relativePath = pyramid.tileRelativePath(level: level, col: col, row: row)
+                    let url = layout.tilesDirectoryURL.appending(path: relativePath)
+                    guard Self.isNonEmptyFile(url) else {
+                        throw PreparationError(reason: .tilesMissing)
+                    }
+                }
             }
         }
 
@@ -75,5 +78,10 @@ nonisolated struct DZIPackageValidator: PackageValidating {
         let fullPath = url.standardizedFileURL.path
         guard fullPath.hasPrefix(basePath + "/") else { return nil }
         return String(fullPath.dropFirst(basePath.count + 1))
+    }
+
+    private static func isNonEmptyFile(_ url: URL) -> Bool {
+        guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) else { return false }
+        return values.isRegularFile == true && (values.fileSize ?? 0) > 0
     }
 }

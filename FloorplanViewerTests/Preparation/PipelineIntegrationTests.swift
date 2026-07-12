@@ -26,7 +26,7 @@ struct PipelineIntegrationTests {
         }
 
         func download(
-            from url: URL, to destination: URL, progress: @escaping @Sendable (Double?) -> Void
+            from url: URL, to destination: URL, progress: @escaping @Sendable (Double?) async -> Void
         ) async throws {
             lock.withLock { count += 1 }
             try await wrapped.download(from: url, to: destination, progress: progress)
@@ -53,6 +53,18 @@ struct PipelineIntegrationTests {
             tarEntries.append(TarEntry(info: info, data: data))
         }
         try GzipArchive.archive(data: TarContainer.create(from: tarEntries)).write(to: url)
+    }
+
+    private func makeMiniExtraction(at root: URL, omitting omittedTile: String? = nil) throws {
+        let tile = Data([0xFF, 0xD8, 0xFF, 0xD9])
+        let tiles = root.appending(path: "tileset/tiles", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: tiles.appending(path: "0"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: tiles.appending(path: "1"), withIntermediateDirectories: true)
+        try Data(Self.miniDescriptor.utf8).write(to: root.appending(path: "tileset/floorplan.dzi"))
+        let paths = ["0/0_0.jpg", "1/0_0.jpg", "1/0_1.jpg", "1/1_0.jpg", "1/1_1.jpg"]
+        for path in paths where path != omittedTile {
+            try tile.write(to: tiles.appending(path: path))
+        }
     }
 
     @Test func realSeamsPrepareToReadyAndRecoverFromArchiveWithoutRedownload() async throws {
@@ -105,5 +117,19 @@ struct PipelineIntegrationTests {
         #expect(try await packages.readyPackage(projectID: "project-1") != nil)
         #expect(downloader.calls == 1)
         await coordinator.stop()
+    }
+
+    @Test func validatorRejectsMissingInteriorTileEvenWhenBothCornersExist() async throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appending(path: "validation-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeMiniExtraction(at: root, omitting: "1/0_1.jpg")
+
+        do {
+            _ = try await DZIPackageValidator().validate(extractedDir: root)
+            Issue.record("Expected sparse pyramid validation to fail")
+        } catch let error as PreparationError {
+            #expect(error.reason == .tilesMissing)
+        }
     }
 }

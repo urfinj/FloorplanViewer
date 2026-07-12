@@ -5,15 +5,30 @@ import Foundation
 /// or continuation bridging. Non-HTTP responses (e.g. `file://` fixtures in tests) skip the
 /// status check and exercise the same streaming path.
 nonisolated struct URLSessionPackageDownloader: PackageDownloading {
-    var session: URLSession = .shared
+    private static let liveSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        configuration.urlCache = nil
+        configuration.waitsForConnectivity = false
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 120
+        configuration.httpMaximumConnectionsPerHost = 2
+        return URLSession(configuration: configuration)
+    }()
+
+    var session: URLSession
     /// Buffered write size — byte-wise `FileHandle` writes would be pathological.
     private static let chunkSize = 64 * 1024
+
+    init(session: URLSession = Self.liveSession) {
+        self.session = session
+    }
 
     @concurrent
     func download(
         from url: URL,
         to destination: URL,
-        progress: @escaping @Sendable (Double?) -> Void
+        progress: @escaping @Sendable (Double?) async -> Void
     ) async throws {
         do {
             try await stream(from: url, to: destination, progress: progress)
@@ -33,15 +48,15 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
     private func stream(
         from url: URL,
         to destination: URL,
-        progress: @escaping @Sendable (Double?) -> Void
+        progress: @escaping @Sendable (Double?) async -> Void
     ) async throws {
         let (bytes, response) = try await session.bytes(from: url)
-        if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+        if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
             throw PreparationError(reason: .httpStatus)
         }
         let expected = response.expectedContentLength // -1 when unknown
         if expected <= 0 {
-            progress(nil)
+            await progress(nil)
         }
 
         try FileManager.default.createDirectory(
@@ -64,7 +79,7 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
                 received += Int64(buffer.count)
                 buffer.removeAll(keepingCapacity: true)
                 if expected > 0 {
-                    progress(Double(received) / Double(expected))
+                    await progress(Double(received) / Double(expected))
                 }
             }
         }
@@ -79,6 +94,6 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
         if expected > 0, received != expected {
             throw PreparationError(reason: .corruptArchive)
         }
-        progress(1.0)
+        await progress(1.0)
     }
 }

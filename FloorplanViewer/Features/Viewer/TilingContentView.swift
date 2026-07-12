@@ -17,6 +17,9 @@ final class TilingContentView: UIView {
     private let pyramid: TilePyramid
     private let provider: TileProvider
     private let displayScale: CGFloat
+    #if DEBUG
+        private let logsTileDraws: Bool
+    #endif
 
     override class var layerClass: AnyClass {
         CATiledLayer.self
@@ -32,6 +35,9 @@ final class TilingContentView: UIView {
         self.pyramid = pyramid
         self.provider = provider
         self.displayScale = max(1, displayScale)
+        #if DEBUG
+            logsTileDraws = ProcessInfo.processInfo.environment["FLOORPLAN_DEBUG_TILES"] == "1"
+        #endif
         super.init(frame: CGRect(origin: .zero, size: pyramid.fullSize))
         backgroundColor = .white // plan paper behind not-yet-decoded tiles
         isOpaque = true
@@ -39,7 +45,7 @@ final class TilingContentView: UIView {
             tiled.contentsScale = self.displayScale
             tiled.levelsOfDetail = pyramid.levelCount
             // Headroom above LOD 1 for pinch bounce past max zoom.
-            tiled.levelsOfDetailBias = 1
+            tiled.levelsOfDetailBias = 2
             // In pixels: one draw callback ≈ one DZI tile at every LOD (both grids halve together).
             let side = CGFloat(pyramid.descriptor.tileSize) * self.displayScale
             tiled.tileSize = CGSize(width: side, height: side)
@@ -60,11 +66,13 @@ final class TilingContentView: UIView {
         // Choose the DZI level whose pixels match the backing density (LOD × displayScale).
         let level = pyramid.folderLevel(forLODScale: lodScale * displayScale)
         #if DEBUG
-            Log.viewer.debug("""
-            tile draw: ctm=\(ctx.ctm.a, format: .fixed(precision: 3)) \
-            lod=\(lodScale, format: .fixed(precision: 3)) level=\(level) \
-            rect=(\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)))
-            """)
+            if logsTileDraws {
+                Log.viewer.debug("""
+                tile draw: ctm=\(ctx.ctm.a, format: .fixed(precision: 3)) \
+                lod=\(lodScale, format: .fixed(precision: 3)) level=\(level) \
+                rect=(\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)))
+                """)
+            }
         #endif
         let (cols, rows) = pyramid.tileIndices(intersecting: rect, atLevel: level)
         for row in rows {

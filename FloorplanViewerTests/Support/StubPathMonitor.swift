@@ -16,7 +16,7 @@ final class StubPathMonitor: PathMonitoring, @unchecked Sendable {
         lock.withLock { satisfied }
     }
 
-    /// Multi-sink like the production adapter: every registered sink fires on every change.
+    /// Multi-sink like the production adapter: registered sinks fire on actual status changes.
     func start(onUpdate: @escaping @Sendable (Bool) -> Void) {
         lock.withLock { sinks.append(onUpdate) }
     }
@@ -28,6 +28,7 @@ final class StubPathMonitor: PathMonitoring, @unchecked Sendable {
     /// Set reachability and fire the captured sinks (like NWPathMonitor's update handler).
     func set(satisfied newValue: Bool) {
         let callbacks = lock.withLock {
+            guard satisfied != newValue else { return [@Sendable (Bool) -> Void]() }
             satisfied = newValue
             return sinks
         }

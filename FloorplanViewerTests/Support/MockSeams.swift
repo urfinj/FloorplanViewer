@@ -33,7 +33,7 @@ final class MockDownloader: PackageDownloading, @unchecked Sendable {
     func download(
         from _: URL,
         to destination: URL,
-        progress: @escaping @Sendable (Double?) -> Void
+        progress: @escaping @Sendable (Double?) async -> Void
     ) async throws {
         let behavior = lock.withLock {
             callCount += 1
@@ -46,7 +46,7 @@ final class MockDownloader: PackageDownloading, @unchecked Sendable {
             )
             try Data(repeating: 0xAB, count: bytes).write(to: destination)
             for tick in ticks {
-                progress(tick)
+                await progress(tick)
             }
         case let .failure(error):
             throw error

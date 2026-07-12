@@ -13,6 +13,8 @@ struct MarkerOverlayView: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
+            // `EnumeratedSequence` gains RandomAccessCollection only on iOS 26; materialize for
+            // the app's iOS 17 deployment floor.
             ForEach(Array(markers.enumerated()), id: \.element.id) { index, marker in
                 if let point = screenPoint(for: marker) {
                     pin(isSelected: marker.id == selectedID)

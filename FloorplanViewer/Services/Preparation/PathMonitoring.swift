@@ -27,6 +27,7 @@ final nonisolated class NWPathMonitorAdapter: PathMonitoring {
         var satisfied = true
         var sinks: [@Sendable (Bool) -> Void] = []
         var started = false
+        var lastDeliveredStatus = true
     }
 
     private let monitor = NWPathMonitor()
@@ -51,6 +52,8 @@ final nonisolated class NWPathMonitorAdapter: PathMonitoring {
             let reachable = path.status == .satisfied
             let sinks = state.withLock { state -> [@Sendable (Bool) -> Void] in
                 state.satisfied = reachable
+                guard state.lastDeliveredStatus != reachable else { return [] }
+                state.lastDeliveredStatus = reachable
                 return state.sinks
             }
             for sink in sinks {

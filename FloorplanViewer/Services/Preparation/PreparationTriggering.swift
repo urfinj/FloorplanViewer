@@ -4,10 +4,17 @@ import Foundation
 /// view-model tests (a spy suffices) and views away from engine internals.
 nonisolated protocol PreparationTriggering: Sendable {
     func prepare(projectID: String) async
+    func projectSelected(projectID: String) async
     func retryNow(projectID: String) async
     func prepareAll() async
     /// Awaited viewer entry: verify-or-repair settles first, then the validated package (or nil).
     func packageForViewing(projectID: String) async throws -> ReadyPackage?
+}
+
+extension PreparationTriggering {
+    func projectSelected(projectID: String) async {
+        await prepare(projectID: projectID)
+    }
 }
 
 extension PackagePreparationCoordinator: PreparationTriggering {}

@@ -83,12 +83,13 @@ final class AppEnvironment {
         let environment = await AppEnvironment(
             database: store.database, clock: SystemClock(), storage: store.storage
         )
-        // Recovery runs before the launcher flips `.ready`: no UI — and no preparation — ever
-        // observes an unreconciled store.
+        // Catalog sync + recovery run before the launcher flips `.ready`: no UI — and no
+        // preparation — ever observes stale endpoints or an unreconciled store.
         do {
+            try await environment.projectRepository.synchronizeCatalog()
             try await environment.launchRecovery.recover()
         } catch {
-            Log.app.error("Launch recovery failed: \(String(describing: error), privacy: .public)")
+            Log.app.error("Catalog sync or launch recovery failed: \(String(describing: error), privacy: .public)")
             throw AppLaunchError.recoveryFailed(underlying: String(describing: error))
         }
         return environment

@@ -72,6 +72,10 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "1.0"
         TARGETED_DEVICE_FAMILY: "1,2"
+        # Device code-signing, same as StarterKit: EastWeb LLC team, automatic.
+        # A wildcard dev profile for this team already covers the bundle id + devices.
+        DEVELOPMENT_TEAM: "33LBLK6PMF"
+        CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Names the accent so Color.accentColor / the global tint resolve to it.
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor

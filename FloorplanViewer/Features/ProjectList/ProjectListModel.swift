@@ -11,18 +11,26 @@ final class ProjectListModel {
 
     private(set) var rows: [ProjectListRow] = []
     private(set) var observationFailed = false
+    private var selectionTask: Task<Void, Never>?
 
     var selectedProjectID: String? {
         didSet {
+            selectionTask?.cancel()
             guard oldValue != selectedProjectID, let id = selectedProjectID else { return }
-            Task { [appState, preparation] in
+            selectionTask = Task { [appState, preparation] in
                 do {
+                    try Task.checkCancellation()
                     try await appState.setLastSelectedProjectID(id)
+                    try Task.checkCancellation()
                 } catch {
+                    if error is CancellationError {
+                        return
+                    }
                     Log.app.error("Persisting selection failed: \(String(describing: error), privacy: .public)")
                 }
+                guard !Task.isCancelled else { return }
                 // Assignment trigger: preparing is retried when the project is selected.
-                await preparation.prepare(projectID: id)
+                await preparation.projectSelected(projectID: id)
             }
         }
     }
@@ -33,8 +41,8 @@ final class ProjectListModel {
         self.preparation = preparation
     }
 
-    /// Restores the persisted selection (falling back to the first project) and then observes the
-    /// list until the owning view goes away. Call from `.task`.
+    /// Restores a persisted selection, if one exists, and then observes the list until the owning
+    /// view goes away. Call from `.task`.
     func start() async {
         await restoreSelection()
         await observe()

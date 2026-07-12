@@ -16,10 +16,16 @@ final nonisolated class TileProvider: @unchecked Sendable {
     private let pyramid: TilePyramid
     private let cache = NSCache<NSString, UIImage>()
 
-    init(tilesDirectoryURL: URL, pyramid: TilePyramid, cacheLimit: Int = 120) {
+    init(
+        tilesDirectoryURL: URL,
+        pyramid: TilePyramid,
+        cacheLimit: Int = 120,
+        cacheCostLimit: Int = 48 * 1_024 * 1_024
+    ) {
         self.tilesDirectoryURL = tilesDirectoryURL
         self.pyramid = pyramid
         cache.countLimit = cacheLimit // ~a few screenfuls of tiles
+        cache.totalCostLimit = cacheCostLimit
     }
 
     func tileImage(level: Int, col: Int, row: Int) -> UIImage? {
@@ -31,7 +37,8 @@ final nonisolated class TileProvider: @unchecked Sendable {
         guard let image = UIImage(contentsOfFile: url.path) else {
             return nil
         }
-        cache.setObject(image, forKey: key)
+        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        cache.setObject(image, forKey: key, cost: cost)
         return image
     }
 }

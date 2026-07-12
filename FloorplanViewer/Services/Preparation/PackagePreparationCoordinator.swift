@@ -130,6 +130,13 @@ actor PackagePreparationCoordinator {
         prepare(projectID: projectID)
     }
 
+    /// A user selection is an explicit retry trigger: reset only the in-memory automatic-attempt
+    /// cap, keep persisted retry history/backoff facts, and join the normal single-flight path.
+    func projectSelected(projectID: String) {
+        sessionAttempts[projectID] = nil
+        prepare(projectID: projectID)
+    }
+
     /// The viewer's entry hook: re-verify a `ready` row against disk; broken rows demote inside
     /// the pipeline and re-prepare automatically. Delegates to `prepare` — same idempotent path.
     func revalidateReady(projectID: String) {
@@ -271,7 +278,7 @@ actor PackagePreparationCoordinator {
             logger.notice("Downloading \(projectID, privacy: .public)")
             try await downloader.download(from: url, to: stagedArchive) { [weak self] fraction in
                 guard let self, let fraction else { return }
-                Task { await self.recordProgress(projectID: projectID, fraction: fraction) }
+                await recordProgress(projectID: projectID, fraction: fraction)
             }
             try storage.promoteStagedFile(from: stagedArchive, toRelative: archiveRel)
             try await packages.markDownloaded(projectID: projectID, archiveRelPath: archiveRel)
