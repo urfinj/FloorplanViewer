@@ -22,6 +22,8 @@ struct ZoomableTiledScrollView: UIViewRepresentable {
         scroll.showsHorizontalScrollIndicator = false
         scroll.bouncesZoom = true
         scroll.contentInsetAdjustmentBehavior = .never
+        // Give the white plan paper a visible edge when letterboxed (esp. light mode).
+        scroll.backgroundColor = .secondarySystemBackground
 
         let doubleTap = UITapGestureRecognizer(
             target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:))

@@ -17,7 +17,7 @@ struct StatusBadge: View {
     private var title: String {
         switch displayState {
         case .preparing: "Preparing"
-        case let .retrying(attempt): "Retrying (attempt \(attempt))"
+        case let .retrying(attempt, _): "Retrying (attempt \(attempt))"
         case .extracting: "Extracting"
         case .ready: "Available offline"
         case .failedWillRetry: "Failed — will retry"

@@ -1,13 +1,16 @@
 import SwiftUI
 
 /// Renders marker pins above the scroll view at constant screen size, positions derived from
-/// `ViewportState`. Hit-testing is off — all interaction flows through the UIKit tap recognizer
-/// and the pure resolver; markers stay discoverable to VoiceOver as labeled elements.
+/// `ViewportState`. Hit-testing is off — touch interaction flows through the UIKit tap
+/// recognizer and the pure resolver — but each pin remains a VoiceOver element whose activate
+/// action toggles selection (deletion then lives in the toolbar), so assistive-tech users are
+/// not locked out of an interaction they cannot aim by tapping.
 struct MarkerOverlayView: View {
     let markers: [Marker]
     let selectedID: String?
     let viewport: ViewportState
     let imageSize: CGSize
+    let onActivate: (String) -> Void
 
     private static let cullMargin: CGFloat = 50
 
@@ -19,11 +22,23 @@ struct MarkerOverlayView: View {
                 if let point = screenPoint(for: marker) {
                     pin(isSelected: marker.id == selectedID)
                         .position(point)
-                        .accessibilityLabel("Marker \(index + 1) of \(markers.count)")
+                        .accessibilityLabel(accessibilityText(index: index, isSelected: marker.id == selectedID))
+                        .accessibilityAddTraits(.isButton)
+                        .accessibilityAction {
+                            onActivate(marker.id)
+                        }
                 }
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private func accessibilityText(index: Int, isSelected: Bool) -> String {
+        var text = "Marker \(index + 1) of \(markers.count)"
+        if isSelected {
+            text += ", selected"
+        }
+        return text
     }
 
     private func screenPoint(for marker: Marker) -> CGPoint? {

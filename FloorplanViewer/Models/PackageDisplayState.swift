@@ -4,7 +4,7 @@ import Foundation
 /// The mapping is the plan `00 §7` display table; connectivity is not package truth.
 nonisolated enum PackageDisplayState: Equatable, Sendable {
     case preparing(progress: Double?)
-    case retrying(attempt: Int)
+    case retrying(attempt: Int, progress: Double?)
     case extracting
     case ready
     case failedWillRetry(reason: PackageFailureReason, nextRetryAt: Double?)
@@ -22,9 +22,11 @@ nonisolated enum PackageDisplayState: Equatable, Sendable {
         case .ready:
             .ready // ready is ready, offline or not
         case .downloading:
-            retryCount > 0 ? .retrying(attempt: retryCount + 1) : .preparing(progress: progress)
+            retryCount > 0
+                ? .retrying(attempt: retryCount + 1, progress: progress)
+                : .preparing(progress: progress)
         case .extracting, .downloaded:
-            retryCount > 0 ? .retrying(attempt: retryCount + 1) : .extracting
+            retryCount > 0 ? .retrying(attempt: retryCount + 1, progress: nil) : .extracting
         case .notPrepared, .queued:
             isOffline ? .unavailableOffline : .preparing(progress: nil)
         case .failed:

@@ -10,8 +10,11 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.urlCache = nil
         configuration.waitsForConnectivity = false
+        // The 30s request timeout is the stall detector; the resource timeout is only a safety
+        // net and must not kill slow-but-progressing transfers (samples are <1 MB; real packages
+        // may not be).
         configuration.timeoutIntervalForRequest = 30
-        configuration.timeoutIntervalForResource = 120
+        configuration.timeoutIntervalForResource = 600
         configuration.httpMaximumConnectionsPerHost = 2
         return URLSession(configuration: configuration)
     }()
@@ -52,6 +55,9 @@ nonisolated struct URLSessionPackageDownloader: PackageDownloading {
     ) async throws {
         let (bytes, response) = try await session.bytes(from: url)
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
+            // The persisted reason stays coarse (`httpStatus`), but 404 vs 500 vs 403 matters
+            // when diagnosing in the field — keep the code in the log.
+            Log.prep.error("HTTP \(http.statusCode) for \(url.absoluteString, privacy: .public)")
             throw PreparationError(reason: .httpStatus)
         }
         let expected = response.expectedContentLength // -1 when unknown

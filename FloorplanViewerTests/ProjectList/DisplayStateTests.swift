@@ -24,11 +24,11 @@ struct DisplayStateTests {
         let downloading = PackageDisplayState.make(
             state: .downloading, reason: nil, retryCount: 2, isOffline: false, progress: 0.1, nextRetryAt: nil
         )
-        #expect(downloading == .retrying(attempt: 3))
+        #expect(downloading == .retrying(attempt: 3, progress: 0.1))
         let extracting = PackageDisplayState.make(
             state: .extracting, reason: nil, retryCount: 1, isOffline: false, progress: nil, nextRetryAt: nil
         )
-        #expect(extracting == .retrying(attempt: 2))
+        #expect(extracting == .retrying(attempt: 2, progress: nil))
     }
 
     @Test func extractingAndDownloadedShowExtracting() {

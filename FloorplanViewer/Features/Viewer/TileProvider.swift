@@ -37,8 +37,11 @@ final nonisolated class TileProvider: @unchecked Sendable {
         guard let image = UIImage(contentsOfFile: url.path) else {
             return nil
         }
-        let cost = image.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
-        cache.setObject(image, forKey: key, cost: cost)
-        return image
+        // Predecode once, here on the background draw thread (`UIImage(contentsOfFile:)` is lazy —
+        // without this, JPEG decode can re-run inside every draw that hits this tile).
+        let prepared = image.preparingForDisplay() ?? image
+        let cost = prepared.cgImage.map { $0.bytesPerRow * $0.height } ?? 0
+        cache.setObject(prepared, forKey: key, cost: cost)
+        return prepared
     }
 }

@@ -61,8 +61,11 @@ struct RootView: View {
     @ViewBuilder
     private var detail: some View {
         if let selectedID = model.selectedProjectID {
-            FloorplanViewerScreen(model: environment.makeViewerModel(projectID: selectedID))
-                .id(selectedID) // fresh model + viewer per project; no cross-project bleed
+            FloorplanViewerScreen(
+                title: model.rows.first(where: { $0.id == selectedID })?.name ?? "Floorplan",
+                model: environment.makeViewerModel(projectID: selectedID)
+            )
+            .id(selectedID) // fresh model + viewer per project; no cross-project bleed
         } else {
             ContentUnavailableView("Select a Project", systemImage: "square.stack.3d.up")
         }

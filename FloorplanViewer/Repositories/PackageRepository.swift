@@ -66,10 +66,12 @@ nonisolated struct PackageRepository: Sendable {
         }
     }
 
-    func setDownloadProgress(projectID: String, _ progress: Double) async throws {
+    /// `nil` marks an indeterminate transfer (unknown Content-Length) — the UI shows a spinner
+    /// instead of a frozen 0% bar.
+    func setDownloadProgress(projectID: String, _ progress: Double?) async throws {
         try await dbWriter.write { db in
             guard var rec = try PackageRecord.fetchOne(db, key: projectID), rec.state == .downloading else { return }
-            rec.downloadProgress = min(max(progress, 0), 1)
+            rec.downloadProgress = progress.map { min(max($0, 0), 1) }
             rec.updatedAt = clock.now.timeIntervalSince1970
             try rec.update(db)
         }
@@ -88,6 +90,8 @@ nonisolated struct PackageRepository: Sendable {
     func beginExtracting(projectID: String) async throws {
         try await mutate(projectID) { rec, now in
             rec.stateRaw = PackageState.extracting.rawValue
+            // Extraction-only attempts (archive already on disk) are attempts too.
+            rec.lastAttemptAt = now
             rec.updatedAt = now
         }
     }

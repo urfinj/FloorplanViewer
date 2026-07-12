@@ -284,6 +284,29 @@ struct CoordinatorTests {
         await h.coordinator.stop()
     }
 
+    @Test func offlineDueFailedRowDoesNotHotLoopTheRetryTimer() async throws {
+        // Regression: a row fails online (past-due schedule), then the device goes offline with
+        // no local archive. The timer must NOT arm (a drain would bounce off the offline gate
+        // uncharged, re-arm at zero delay, and spin). Connectivity return is the wake-up.
+        let h = try makeHarness(satisfied: false)
+        defer { h.cleanUp() }
+        await h.coordinator.start() // arms the connectivity sink; offline drain parks everything
+        await h.coordinator.awaitQuiescence()
+        try await h.packages.markFailed(
+            projectID: "project-1", reason: .httpStatus, retryCount: 1, nextRetryAt: h.now - 10
+        )
+        await h.coordinator.prepare(projectID: "project-1")
+        await h.coordinator.awaitQuiescence()
+        #expect(await h.coordinator.hasRetryTimer == false)
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(h.downloader.calls == 0) // no spin while offline
+
+        h.monitor.set(satisfied: true) // restore → drains and succeeds
+        let recovered = await eventually { await (try? h.record("project-1").state) == .ready }
+        #expect(recovered)
+        await h.coordinator.stop()
+    }
+
     @Test func offlineKeepsFailedRowFactsIntact() async throws {
         let h = try makeHarness(satisfied: false)
         defer { h.cleanUp() }

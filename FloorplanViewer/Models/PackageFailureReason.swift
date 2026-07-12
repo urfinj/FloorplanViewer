@@ -12,4 +12,17 @@ nonisolated enum PackageFailureReason: String, Sendable, CaseIterable, Equatable
     case tilesMissing
     case diskFull
     case unknown
+
+    /// Short, safe on-screen phrasing — shared by the row caption and the viewer's failed pane.
+    var userDescription: String {
+        switch self {
+        case .network: "Network problem"
+        case .httpStatus: "Server error"
+        case .corruptArchive: "Damaged download"
+        case .extractionFailed: "Couldn’t unpack"
+        case .descriptorNotFound, .descriptorInvalid, .tilesMissing: "Package content invalid"
+        case .diskFull: "Not enough storage"
+        case .unknown: "Something went wrong"
+        }
+    }
 }

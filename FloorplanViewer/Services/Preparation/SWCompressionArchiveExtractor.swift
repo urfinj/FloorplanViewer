@@ -29,6 +29,12 @@ nonisolated struct SWCompressionArchiveExtractor: ArchiveExtracting {
         let entries: [TarEntry]
         do {
             tarData = try GzipArchive.unarchive(archive: archiveData)
+            // Reject oversized input before `TarContainer.open` materializes it a second time —
+            // the per-entry bound below only runs after everything is already in memory.
+            guard tarData.count <= maxExpandedBytes else {
+                Log.prep.error("Archive rejected: expanded gzip size exceeds bound")
+                throw PreparationError(reason: .corruptArchive)
+            }
             entries = try TarContainer.open(container: tarData)
         } catch {
             throw PreparationError(reason: .corruptArchive)

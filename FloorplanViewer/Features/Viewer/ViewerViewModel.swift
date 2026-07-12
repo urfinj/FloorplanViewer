@@ -160,6 +160,10 @@ final class ViewerViewModel {
                 provider: TileProvider(tilesDirectoryURL: tilesURL, pyramid: pyramid)
             )
         } catch {
+            // Law: classify cancellation first — a torn-down screen is not an error.
+            if error is CancellationError || Task.isCancelled {
+                return
+            }
             Log.viewer.error("Opening package failed: \(String(describing: error), privacy: .public)")
         }
     }
@@ -193,6 +197,11 @@ final class ViewerViewModel {
         case .none:
             break
         }
+    }
+
+    /// VoiceOver activation path (the overlay's pins are not touch-hittable by design).
+    func toggleSelection(of markerID: String) {
+        selectedMarkerID = selectedMarkerID == markerID ? nil : markerID
     }
 
     func deleteSelectedMarker() {

@@ -277,8 +277,14 @@ actor PackagePreparationCoordinator {
             try? FileManager.default.removeItem(at: stagedArchive) // stale partial from a prior run
             logger.notice("Downloading \(projectID, privacy: .public)")
             try await downloader.download(from: url, to: stagedArchive) { [weak self] fraction in
-                guard let self, let fraction else { return }
-                await recordProgress(projectID: projectID, fraction: fraction)
+                guard let self else { return }
+                if let fraction {
+                    await recordProgress(projectID: projectID, fraction: fraction)
+                } else {
+                    // Unknown total length: clear the 0% determinate bar so the UI shows an
+                    // indeterminate spinner instead of a frozen bar (downloader sends nil once).
+                    await recordIndeterminateProgress(projectID: projectID)
+                }
             }
             try storage.promoteStagedFile(from: stagedArchive, toRelative: archiveRel)
             try await packages.markDownloaded(projectID: projectID, archiveRelPath: archiveRel)
@@ -323,8 +329,10 @@ actor PackagePreparationCoordinator {
         let failure = PreparationError.classify(error)
         cleanStagingArtifacts(projectID: projectID)
 
-        if failure.wentOffline {
-            // The network went away mid-step: park, uncharged — connectivity is the wake-up.
+        if failure.wentOffline, !pathMonitor.isSatisfied {
+            // The network went away mid-step AND the monitor agrees: park, uncharged —
+            // connectivity is the wake-up. If the path claims to be up (transient blip, captive
+            // portal), fall through to the normal backoff below so a wake-up always exists.
             logger.notice("Went offline — parked \(projectID, privacy: .public)")
             await shielded { [packages] in
                 try await packages.markQueued(projectID: projectID)
@@ -343,11 +351,17 @@ actor PackagePreparationCoordinator {
             previous = sessionAttempts[projectID, default: 1] - 1
         }
         let retryCount = previous + 1
+        // When the session cap is reached, persist NO schedule — the UI must not promise a retry
+        // the cap will suppress. Launch, selection, connectivity, and manual retry still reset it.
+        let capped = sessionAttempts[projectID, default: 0] >= maxAutoAttemptsPerSession
         let delay = backoff.delay(attempt: retryCount, unitJitter: nextUnitJitter())
-        let nextRetryAt = clock.now.timeIntervalSince1970 + delay
+        let nextRetryAt = capped ? nil : clock.now.timeIntervalSince1970 + delay
         logger.error("""
         Prepare failed for \(projectID, privacy: .public): \(failure.reason.rawValue, privacy: .public) \
-        (attempt \(retryCount), retry in \(Int(delay))s)
+        (attempt \(retryCount), \(
+            capped ? "auto-retry capped this session" : "retry in \(Int(delay))s",
+            privacy: .public
+        ))
         """)
 
         var clearingArchive = false
@@ -426,6 +440,14 @@ actor PackagePreparationCoordinator {
         }
     }
 
+    private func recordIndeterminateProgress(projectID: String) async {
+        do {
+            try await packages.setDownloadProgress(projectID: projectID, nil)
+        } catch {
+            logger.error("Progress clear failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     // MARK: - Retry timer (one coalesced timer for the soonest due failed row)
 
     private func armRetryTimer() async {
@@ -446,12 +468,27 @@ actor PackagePreparationCoordinator {
             record.state == .failed
                 && record.nextRetryAt != nil
                 && sessionAttempts[record.projectID, default: 0] < maxAutoAttemptsPerSession
+                && isActionableNow(record)
         }
         guard let soonest = eligible.compactMap(\.nextRetryAt).min() else { return }
         scheduleTimer(after: max(0, soonest - clock.now.timeIntervalSince1970))
     }
 
+    /// Whether a retry could make progress right now. While offline, a row with no local archive
+    /// would just bounce off the download gate uncharged — arming/draining for it produces a
+    /// zero-delay hot loop. Offline rows with an archive still extract; connectivity restoration
+    /// (`connectivityDidSatisfy`) is the wake-up for everything else.
+    private func isActionableNow(_ record: PackageRecord) -> Bool {
+        pathMonitor.isSatisfied || (record.archiveRelPath.map { storage.fileExists(atRelative: $0) } ?? false)
+    }
+
     private func scheduleTimer(after delay: TimeInterval) {
+        // Restore the single-timer invariant on every interleaving, and never arm past `stop()`.
+        retryTimer?.cancel()
+        guard !isStopping else {
+            retryTimer = nil
+            return
+        }
         retryTimer = Task { [weak self] in
             do {
                 try await Task.sleep(for: .seconds(delay))
@@ -485,6 +522,7 @@ actor PackagePreparationCoordinator {
             record.state == .failed
                 && (record.nextRetryAt ?? 0) <= now
                 && sessionAttempts[record.projectID, default: 0] < maxAutoAttemptsPerSession
+                && isActionableNow(record)
         }
         for record in due {
             prepare(projectID: record.projectID)

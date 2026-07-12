@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// One project in the sidebar: name, state badge, and the state-specific second line
-/// (progress while downloading; failure + relative retry time + manual Retry when failed).
+/// (progress while downloading — first attempt or retry; failure + relative retry time +
+/// manual Retry when failed).
 struct ProjectRowView: View {
     let row: ProjectListRow
     let isOffline: Bool
@@ -29,9 +30,9 @@ struct ProjectRowView: View {
     private var secondLine: some View {
         switch displayState {
         case let .preparing(progress?):
-            ProgressView(value: progress)
-                .progressViewStyle(.linear)
-                .accessibilityLabel("Downloading, \(Int(progress * 100)) percent")
+            progressLine(progress)
+        case let .retrying(_, progress?):
+            progressLine(progress)
         case let .failedWillRetry(reason, nextRetryAt):
             HStack(spacing: 12) {
                 Text(retryCaption(reason: reason, nextRetryAt: nextRetryAt))
@@ -47,8 +48,14 @@ struct ProjectRowView: View {
         }
     }
 
+    private func progressLine(_ progress: Double) -> some View {
+        ProgressView(value: progress)
+            .progressViewStyle(.linear)
+            .accessibilityLabel("Downloading, \(Int(progress * 100)) percent")
+    }
+
     private func retryCaption(reason: PackageFailureReason, nextRetryAt: Double?) -> String {
-        var caption = failureText(reason)
+        var caption = reason.userDescription
         if let nextRetryAt {
             let date = Date(timeIntervalSince1970: nextRetryAt)
             if date > Date() {
@@ -56,17 +63,5 @@ struct ProjectRowView: View {
             }
         }
         return caption
-    }
-
-    private func failureText(_ reason: PackageFailureReason) -> String {
-        switch reason {
-        case .network: "Network problem"
-        case .httpStatus: "Server error"
-        case .corruptArchive: "Damaged download"
-        case .extractionFailed: "Couldn’t unpack"
-        case .descriptorNotFound, .descriptorInvalid, .tilesMissing: "Package content invalid"
-        case .diskFull: "Not enough storage"
-        case .unknown: "Something went wrong"
-        }
     }
 }
