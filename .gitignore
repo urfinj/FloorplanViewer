@@ -22,3 +22,6 @@ Generated/
 
 # Large real sample archives dropped in for local spike checks (never committed).
 FloorplanViewerTests/Fixtures/*.tar.gz
+
+# Agent worktrees
+.claude/

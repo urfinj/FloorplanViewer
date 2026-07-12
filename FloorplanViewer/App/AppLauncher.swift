@@ -25,9 +25,13 @@ final class AppLauncher {
         await load()
     }
 
-    /// Destructive reset (confirmed in the UI). Phase 2 wires `AppContainer.reset()` before the
-    /// reload; for now it simply re-attempts launch.
+    /// Destructive reset (confirmed in the UI): clear the local store, then re-attempt launch.
     func reset() async {
+        do {
+            try await AppEnvironment.resetLocalStore()
+        } catch {
+            Log.app.error("Local store reset failed: \(String(describing: error), privacy: .public)")
+        }
         phase = .loading
         await load()
     }
