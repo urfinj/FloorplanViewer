@@ -20,20 +20,36 @@ nonisolated enum PackageDisplayState: Equatable, Sendable {
     ) -> PackageDisplayState {
         switch state {
         case .ready:
-            .ready // ready is ready, offline or not
+            return .ready // ready is ready, offline or not
         case .downloading:
-            retryCount > 0
-                ? .retrying(attempt: retryCount + 1, progress: progress)
+            return retryCount > 0
+                ? .retrying(attempt: retryCount + 1, progress: meaningfulProgress(progress))
                 : .preparing(progress: progress)
         case .extracting, .downloaded:
-            retryCount > 0 ? .retrying(attempt: retryCount + 1, progress: nil) : .extracting
+            return retryCount > 0 ? .retrying(attempt: retryCount + 1, progress: nil) : .extracting
         case .notPrepared, .queued:
-            isOffline ? .unavailableOffline : .preparing(progress: nil)
+            return isOffline ? .unavailableOffline : .preparing(progress: nil)
         case .failed:
-            isOffline
-                ? .unavailableOffline
-                : .failedWillRetry(reason: reason ?? .unknown, nextRetryAt: nextRetryAt)
+            if isOffline {
+                return .unavailableOffline
+            }
+            // While an automatic retry is still scheduled, present the row as *retrying*, not
+            // failed. Otherwise the brief in-flight attempt of a fast-failing plan (e.g. a 404)
+            // flips the whole row and viewer between a "Retrying" screen and a "Failed" screen on
+            // every backoff tick — a jarring blink. Only once auto-retry is exhausted (no
+            // `nextRetryAt`) do we surface the distinct failed state with its Retry affordance.
+            if nextRetryAt != nil {
+                return .retrying(attempt: retryCount + 1, progress: nil)
+            }
+            return .failedWillRetry(reason: reason ?? .unknown, nextRetryAt: nil)
         }
+    }
+
+    /// Treat a 0 (or absent) download fraction as indeterminate. A retry that fails before any
+    /// bytes arrive must not flicker the progress indicator between a 0% bar and a spinner.
+    private static func meaningfulProgress(_ progress: Double?) -> Double? {
+        guard let progress, progress > 0 else { return nil }
+        return progress
     }
 
     static func make(row: ProjectListRow, isOffline: Bool) -> PackageDisplayState {

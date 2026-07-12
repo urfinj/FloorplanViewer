@@ -39,7 +39,19 @@ final class DebugSupport {
         }
     }
 
-    func makeController(connectivity: ConnectivityState) -> DebugController {
-        DebugController(monitor: monitor, controls: controls, connectivity: connectivity)
+    func makeController(
+        connectivity: ConnectivityState,
+        projects: ProjectRepository,
+        coordinator: PackagePreparationCoordinator,
+        database: AppDatabase
+    ) -> DebugController {
+        DebugController(
+            monitor: monitor,
+            controls: controls,
+            connectivity: connectivity,
+            projects: projects,
+            coordinator: coordinator,
+            database: database
+        )
     }
 }

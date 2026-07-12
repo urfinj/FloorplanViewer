@@ -75,9 +75,7 @@ struct RootView: View {
                         row: row,
                         previewURL: previewURL(for: row),
                         isOffline: environment.connectivity.isOffline
-                    ) {
-                        model.retryNow(projectID: row.id)
-                    }
+                    )
                     .tag(row.id)
                     .listRowSeparator(.hidden)
                 }

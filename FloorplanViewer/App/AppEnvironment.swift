@@ -60,12 +60,18 @@ final class AppEnvironment {
             extractor: SWCompressionArchiveExtractor(),
             validator: DZIPackageValidator(),
             pathMonitor: debug.pathMonitor,
-            clock: clock
+            clock: clock,
+            // Calmer retry cadence than the type's baseline: first auto-retry after ~5–10s, then
+            // doubling — a persistently-failing plan (e.g. a 404) re-attempts sparingly, not every
+            // couple of seconds. The assignment leaves the exact strategy to us (reasonable + documented).
+            backoff: BackoffPolicy(base: 10)
         )
         self.coordinator = coordinator
         let connectivity = ConnectivityState(monitor: debug.pathMonitor)
         self.connectivity = connectivity
-        debugController = debug.makeController(connectivity: connectivity)
+        debugController = debug.makeController(
+            connectivity: connectivity, projects: projectRepository, coordinator: coordinator, database: database
+        )
     }
 
     /// One viewer model per selected project (`.id(projectID)` gives per-project identity).

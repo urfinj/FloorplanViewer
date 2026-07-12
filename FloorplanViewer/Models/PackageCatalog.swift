@@ -2,9 +2,8 @@ import Foundation
 
 /// The fixed set of projects seeded into the database, and the package URL for each.
 nonisolated enum PackageCatalog {
-    /// TEMPORARY development host. The packages are mirrored here during development.
-    /// **Switch back to `https://files.daerogroup.com` before submission.**
-    static let baseURL = "https://files.69035.com"
+    /// Official host for the sample packages.
+    static let baseURL = "https://files.daerogroup.com"
 
     struct Spec: Sendable, Equatable {
         let id: String

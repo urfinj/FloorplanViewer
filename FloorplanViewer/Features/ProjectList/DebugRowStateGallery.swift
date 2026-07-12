@@ -21,8 +21,8 @@
                             row: variant.row,
                             previewURL: resolvePreview(variant.row),
                             isOffline: variant.isOffline
-                        ) {}
-                            .listRowSeparator(.hidden)
+                        )
+                        .listRowSeparator(.hidden)
                     }
                 }
                 .navigationTitle("Row states (debug)")

@@ -52,9 +52,16 @@ struct DisplayStateTests {
     }
 
     @Test func failedShowsRetryInfoOnlineAndUnavailableOffline() {
+        // Auto-retry still scheduled → present as retrying (stable) so the cell/viewer don't blink
+        // between a "Retrying" and a "Failed" screen on every backoff tick.
         #expect(PackageDisplayState.make(
             state: .failed, reason: .httpStatus, retryCount: 3, isOffline: false, progress: nil, nextRetryAt: 123
-        ) == .failedWillRetry(reason: .httpStatus, nextRetryAt: 123))
+        ) == .retrying(attempt: 4, progress: nil))
+        // Auto-retry exhausted (no schedule) → the distinct failed state with a Retry affordance.
+        #expect(PackageDisplayState.make(
+            state: .failed, reason: .httpStatus, retryCount: 6, isOffline: false, progress: nil, nextRetryAt: nil
+        ) == .failedWillRetry(reason: .httpStatus, nextRetryAt: nil))
+        // Offline is never a failure.
         #expect(PackageDisplayState.make(
             state: .failed, reason: .network, retryCount: 3, isOffline: true, progress: nil, nextRetryAt: 123
         ) == .unavailableOffline)

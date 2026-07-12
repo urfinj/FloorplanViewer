@@ -42,6 +42,17 @@ final nonisolated class AppDatabase: Sendable {
         return try AppDatabase(inMemoryWriter: queue)
     }
 
+    /// Closes the pool — checkpoints the WAL and releases the underlying file handles — so the
+    /// store files can be removed without racing an open connection. Best-effort: used by the debug
+    /// "Clear data and reset" just before the process terminates.
+    func close() {
+        do {
+            try writer.close()
+        } catch {
+            Log.data.error("Database close failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
     // MARK: - Configuration
 
     private static func makeConfiguration() -> Configuration {

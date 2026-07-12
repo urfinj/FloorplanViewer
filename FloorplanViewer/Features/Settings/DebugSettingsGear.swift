@@ -6,12 +6,15 @@ import SwiftUI
 struct DebugSettingsGear: ViewModifier {
     let controller: DebugController
     @State private var showing = false
+    /// Opens expanded; reset on each present so a prior drag to `.medium` doesn't stick.
+    @State private var detent: PresentationDetent = .large
 
     func body(content: Content) -> some View {
         content
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
+                        detent = .large
                         showing = true
                     } label: {
                         Label("Debug / Demo settings", systemImage: "gearshape")
@@ -20,14 +23,19 @@ struct DebugSettingsGear: ViewModifier {
             }
             .sheet(isPresented: $showing) {
                 SettingsSheet(controller: controller)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.medium, .large], selection: $detent)
             }
     }
 }
 
 extension View {
-    /// Attaches the Debug / Demo gear + sheet (see `DebugSettingsGear`).
+    /// Attaches the Debug / Demo gear + sheet (see `DebugSettingsGear`). DEBUG-only: in a release
+    /// build this is a no-op, so the panel has no entry point and the toolbar carries no gear.
     func debugSettingsGear(controller: DebugController) -> some View {
-        modifier(DebugSettingsGear(controller: controller))
+        #if DEBUG
+            modifier(DebugSettingsGear(controller: controller))
+        #else
+            self
+        #endif
     }
 }

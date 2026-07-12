@@ -1,14 +1,13 @@
 import SwiftUI
 
 /// One project in the sidebar, organized as one clear column beside the thumbnail:
-/// name → state-specific caption (progress / prepared time + marker count / failure + Retry) →
-/// status badge. The badge lives in the column, not the trailing edge, so it never fights the
-/// title for width and never wraps.
+/// name → state-specific caption (progress / prepared time + marker count / failure) → status
+/// badge. The badge lives in the column, not the trailing edge, so it never fights the title for
+/// width and never wraps. Tapping the row opens the plan screen, which carries the Retry action.
 struct ProjectRowView: View {
     let row: ProjectListRow
     let previewURL: URL?
     let isOffline: Bool
-    let onRetry: () -> Void
 
     private var displayState: PackageDisplayState {
         .make(row: row, isOffline: isOffline)
@@ -27,13 +26,11 @@ struct ProjectRowView: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
+        // Cross-fade state changes so a fast retry loop (e.g. a 404 that fails, backs off, retries)
+        // reads as a calm transition instead of a hard blink of the badge/thumbnail/caption.
+        .animation(.easeInOut(duration: 0.3), value: displayState)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(rowAccessibilityLabel)
-        .accessibilityActions {
-            if case .failedWillRetry = displayState {
-                Button("Retry", action: onRetry)
-            }
-        }
     }
 
     @ViewBuilder
@@ -41,31 +38,28 @@ struct ProjectRowView: View {
         switch displayState {
         case let .preparing(progress?):
             progressLine(progress)
-        case let .retrying(_, progress?):
-            progressLine(progress)
-        case .preparing, .extracting, .retrying:
-            // The badge itself carries the transient status text (with live percent when
-            // downloading) — no caption needed, so the row doesn't say it twice.
+        case .preparing, .extracting:
+            // The badge carries the transient status text — no caption needed here.
             EmptyView()
+        case .retrying:
+            // Stable caption — same shape as `.failedWillRetry` — so the brief in-flight attempt of
+            // a fast-failing plan doesn't blink the cell. Retry lives on the plan screen, not here.
+            caption("Retrying…")
         case .ready:
             readyCaption
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case let .failedWillRetry(reason, nextRetryAt):
-            HStack(spacing: 12) {
-                Text(retryCaption(reason: reason, nextRetryAt: nextRetryAt))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("Retry", systemImage: "arrow.clockwise", action: onRetry)
-                    .buttonStyle(.borderless)
-                    .font(.caption.weight(.semibold))
-            }
+            caption(retryCaption(reason: reason, nextRetryAt: nextRetryAt))
         case .unavailableOffline:
-            Text("Waiting for connection")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            caption("Waiting for connection")
         }
+    }
+
+    private func caption(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
     }
 
     private func progressLine(_ progress: Double) -> some View {
