@@ -6,7 +6,7 @@ final class StubPathMonitor: PathMonitoring, @unchecked Sendable {
     // @unchecked Sendable: all mutable state is serialized by `lock`.
     private let lock = NSLock()
     private var satisfied: Bool
-    private var sinks: [@Sendable () -> Void] = []
+    private var sinks: [@Sendable (Bool) -> Void] = []
 
     init(satisfied: Bool = true) {
         self.satisfied = satisfied
@@ -16,23 +16,23 @@ final class StubPathMonitor: PathMonitoring, @unchecked Sendable {
         lock.withLock { satisfied }
     }
 
-    /// Multi-sink like the production adapter: every registered sink fires on satisfaction.
-    func start(onSatisfied: @escaping @Sendable () -> Void) {
-        lock.withLock { sinks.append(onSatisfied) }
+    /// Multi-sink like the production adapter: every registered sink fires on every change.
+    func start(onUpdate: @escaping @Sendable (Bool) -> Void) {
+        lock.withLock { sinks.append(onUpdate) }
     }
 
     func cancel() {
         lock.withLock { sinks.removeAll() }
     }
 
-    /// Set reachability; when it becomes satisfied, fire the captured sinks (like NWPathMonitor).
+    /// Set reachability and fire the captured sinks (like NWPathMonitor's update handler).
     func set(satisfied newValue: Bool) {
         let callbacks = lock.withLock {
             satisfied = newValue
-            return newValue ? sinks : []
+            return sinks
         }
         for callback in callbacks {
-            callback()
+            callback(newValue)
         }
     }
 }

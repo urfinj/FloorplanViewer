@@ -1,0 +1,79 @@
+import Foundation
+
+/// Drives the project list: live rows, selection persistence/restore, and the selection →
+/// prepare trigger. Views own it via `@State`; observation starts in `.task` and dies with it.
+@MainActor
+@Observable
+final class ProjectListModel {
+    private let projects: ProjectRepository
+    private let appState: AppStateRepository
+    private let preparation: any PreparationTriggering
+
+    private(set) var rows: [ProjectListRow] = []
+    private(set) var observationFailed = false
+
+    var selectedProjectID: String? {
+        didSet {
+            guard oldValue != selectedProjectID, let id = selectedProjectID else { return }
+            Task { [appState, preparation] in
+                do {
+                    try await appState.setLastSelectedProjectID(id)
+                } catch {
+                    Log.app.error("Persisting selection failed: \(String(describing: error), privacy: .public)")
+                }
+                // Assignment trigger: preparing is retried when the project is selected.
+                await preparation.prepare(projectID: id)
+            }
+        }
+    }
+
+    init(projects: ProjectRepository, appState: AppStateRepository, preparation: any PreparationTriggering) {
+        self.projects = projects
+        self.appState = appState
+        self.preparation = preparation
+    }
+
+    /// Restores the persisted selection (falling back to the first project) and then observes the
+    /// list until the owning view goes away. Call from `.task`.
+    func start() async {
+        await restoreSelection()
+        await observe()
+    }
+
+    func retryNow(projectID: String) {
+        Task { [preparation] in
+            await preparation.retryNow(projectID: projectID)
+        }
+    }
+
+    /// Re-subscribe after an observation failure.
+    func retryObservation() {
+        observationFailed = false
+        Task { await observe() }
+    }
+
+    private func restoreSelection() async {
+        do {
+            let known = try await projects.fetchAll().map(\.id)
+            let persisted = try await appState.lastSelectedProjectID()
+            if let persisted, known.contains(persisted) {
+                selectedProjectID = persisted
+            } else if let first = known.first {
+                selectedProjectID = first // fallback: Project 1, persisted by didSet
+            }
+        } catch {
+            Log.app.error("Restoring selection failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func observe() async {
+        do {
+            for try await snapshot in projects.observeProjectList() {
+                rows = snapshot
+            }
+        } catch {
+            Log.app.error("Project list observation failed: \(String(describing: error), privacy: .public)")
+            observationFailed = true
+        }
+    }
+}

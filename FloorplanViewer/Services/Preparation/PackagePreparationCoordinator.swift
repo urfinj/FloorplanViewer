@@ -86,7 +86,8 @@ actor PackagePreparationCoordinator {
         isStopping = false
         if !monitorArmed {
             monitorArmed = true
-            pathMonitor.start { [weak self] in
+            pathMonitor.start { [weak self] isSatisfied in
+                guard isSatisfied else { return }
                 Task { await self?.connectivityDidSatisfy() }
             }
         }

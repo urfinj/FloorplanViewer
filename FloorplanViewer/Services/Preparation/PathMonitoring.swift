@@ -8,8 +8,9 @@ import os
 nonisolated protocol PathMonitoring: Sendable {
     /// The **current** reachability, not merely the transition.
     var isSatisfied: Bool { get }
-    /// Invokes `onSatisfied` whenever the path becomes reachable.
-    func start(onSatisfied: @escaping @Sendable () -> Void)
+    /// Invokes `onUpdate` on every reachability change (both directions — the engine reacts to
+    /// restoration, the UI also needs loss).
+    func start(onUpdate: @escaping @Sendable (Bool) -> Void)
     func cancel()
 }
 
@@ -24,7 +25,7 @@ final nonisolated class NWPathMonitorAdapter: PathMonitoring {
         /// Optimistic until the monitor delivers its first path: the launch drain must not be
         /// gated on a reachability answer that has not arrived yet.
         var satisfied = true
-        var sinks: [@Sendable () -> Void] = []
+        var sinks: [@Sendable (Bool) -> Void] = []
         var started = false
     }
 
@@ -36,9 +37,9 @@ final nonisolated class NWPathMonitorAdapter: PathMonitoring {
         state.withLock(\.satisfied)
     }
 
-    func start(onSatisfied: @escaping @Sendable () -> Void) {
+    func start(onUpdate: @escaping @Sendable (Bool) -> Void) {
         let shouldStartMonitor = state.withLock { state in
-            state.sinks.append(onSatisfied)
+            state.sinks.append(onUpdate)
             if state.started {
                 return false
             }
@@ -48,12 +49,12 @@ final nonisolated class NWPathMonitorAdapter: PathMonitoring {
         guard shouldStartMonitor else { return }
         monitor.pathUpdateHandler = { [state] path in
             let reachable = path.status == .satisfied
-            let sinks = state.withLock { state -> [@Sendable () -> Void] in
+            let sinks = state.withLock { state -> [@Sendable (Bool) -> Void] in
                 state.satisfied = reachable
-                return reachable ? state.sinks : []
+                return state.sinks
             }
             for sink in sinks {
-                sink()
+                sink(reachable)
             }
         }
         monitor.start(queue: queue)
